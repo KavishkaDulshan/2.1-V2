@@ -99,3 +99,46 @@ The following critical issues were resolved to get the firmware running cleanly 
 ### 5. Repository Bloat & Tracking Cleanup
 * **Issue**: The Git repository was tracking 2,000+ files because of the auto-generated dependency directories `managed_components/` and C++ compiler telemetry files `compile_commands.json`.
 * **Fix**: Configured `.gitignore` to properly exclude `managed_components/` and `compile_commands.json`, reducing the repository tracking footprint to source-only files.
+
+---
+
+## Future Keyword Spotting (KWS) Options
+
+The ESP32-S3 is highly capable of running real-time voice keyword spotting. If you plan to implement this in the future under PlatformIO, here are the two primary paths:
+
+### Path A: Edge Impulse (TensorFlow Lite Micro)
+* **Status**: Ready. The required library `a2.1-KWS_inferencing` is already in your `lib/` directory and compiles successfully under PlatformIO.
+* **Requirements**: Runs completely inside internal SRAM (does not require PSRAM to work).
+* **Implementation Plan**:
+  1. Re-add the header `#include <a2.1-KWS_inferencing.h>` in `src/main.cpp`.
+  2. Implement an audio signal reader callback:
+     ```cpp
+     int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr) {
+         for (size_t i = 0; i < length; i++) {
+             int idx = (ring_position + offset + i) % INFER_WINDOW;
+             out_ptr[i] = (float)audio_buffer[idx];
+         }
+         return 0;
+     }
+     ```
+  3. Inside `audioInferenceTask`, invoke the classifier regularly:
+     ```cpp
+     signal_t signal;
+     signal.total_length = INFER_WINDOW;
+     signal.get_data = &microphone_audio_signal_get_data;
+     ei_impulse_result_t result = { 0 };
+     EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
+     if (err == EI_IMPULSE_OK) {
+         // Check result.classification[i] confidence scores (e.g. "wake" score > 0.6)
+     }
+     ```
+
+### Path B: Espressif ESP-SR (WakeNet & MultiNet)
+* **Status**: Requires hardware configuration.
+* **Requirements**: Requires working Octal PSRAM at the hardware boot level.
+* **Implementation Plan**:
+  1. Run `pio run -t menuconfig` in the VS Code terminal to open Espressif's SDK configuration menu.
+  2. Under `Component Config -> ESP32S3-Specific Settings`, enable PSRAM support (`CONFIG_SPIRAM=y`) so that the ESP-SR Acoustic Front End (AFE) can allocate its internal memory frames.
+  3. Flash the custom voice models (such as `model.bin`) to the partition labeled `model` at offset `0x10000` using `esptool.py` or custom flash commands.
+  4. Include `esp_afe_sr_iface.h` and use the default `ESP_AFE_SR_HANDLE` interface to feed and fetch audio chunks.
+
