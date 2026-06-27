@@ -1,0 +1,29 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.clang_complete
+.gcc-flags.json
+*.bin
+*.elf
+*.hex
+dependencies.lock
+
+# ESP-IDF (if managed components are resolved dynamically)
+managed_components/
+
+# C++ Tools
+compile_commands.json
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Local configuration files
+sdkconfig
+sdkconfig.old
+
+# OS files
+.DS_Store
+Thumbs.db
