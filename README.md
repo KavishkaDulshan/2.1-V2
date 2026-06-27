@@ -40,6 +40,42 @@ This project runs a companion robot control system on an **ESP32-S3-N16R8** deve
 
 ---
 
+## PlatformIO Project Setup
+
+This project uses **PlatformIO** inside VS Code for build compilation and dependency management, departing from the classic single-file Arduino IDE layout.
+
+### 1. Dual-Framework Setup (ESP-IDF + Arduino)
+To support the advanced audio hardware processing pipelines alongside Arduino libraries, the project is configured with a hybrid framework setup:
+```ini
+framework = espidf, arduino
+```
+This builds the core system using Espressif's native **ESP-IDF (v4.4.7)** while compiling the Arduino core as an ESP-IDF component. It permits access to low-level FreeRTOS tasks and ESP-IDF APIs directly inside an Arduino `.cpp` file.
+
+### 2. PSRAM Configuration
+For heavy calculations (such as audio inference and vector graphics rendering), the ESP32-S3's internal 320KB RAM is supplemented by its **8MB Octal PSRAM**:
+- `board_build.arduino.memory_type = qio_opi`: Instructs the linker to use Quad SPI Flash and Octal SPI PSRAM (`opi`).
+- `-D BOARD_HAS_PSRAM`: Passes the compiler define ensuring the Arduino allocator is aware of the external RAM.
+
+---
+
+## Translation from Arduino IDE (Original) to PlatformIO
+
+Converting the original Arduino sketch in the `original/` directory to this compiled PlatformIO project required several codebase adaptations:
+
+### 1. File Formats & Compilers
+- **Strict C++ Rules**: The main file was renamed from `main.ino` to `main.cpp`. C++ rules require all functions to be declared before they are called. Thus, forward declarations (like `bool processCameraData();`) were added.
+- **Includes**: Explicitly included `#include <Arduino.h>` which the Arduino IDE usually adds automatically in the background.
+
+### 2. Library Isolation
+- **Global vs Local**: Instead of installing libraries globally via the Arduino IDE Library Manager, libraries are strictly version-controlled inside `platformio.ini` under `lib_deps`.
+- **Custom Local Library**: The Edge Impulse machine learning library (`a2.1-KWS_inferencing`) is located locally inside the `lib/` directory so PlatformIO bundles it automatically during builds.
+
+### 3. Task Management (FreeRTOS)
+- **Multithreading**: In Arduino, everything is typically sequential. In PlatformIO, the audio monitoring is separated into a dedicated FreeRTOS thread (`audioInferenceTask`) pinned to Core 0 using `xTaskCreatePinnedToCore()`. 
+- This ensures the UI rendering (which runs on Core 1's main execution loop) remains completely stutter-free and unaffected by heavy microsecond audio sampling processes.
+
+---
+
 ## Bug Fixes & Refactoring
 
 The following critical issues were resolved to get the firmware running cleanly on the **ESP32-S3-N16R8**:
