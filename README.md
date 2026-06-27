@@ -142,3 +142,4 @@ The ESP32-S3 is highly capable of running real-time voice keyword spotting. If y
   3. Flash the custom voice models (such as `model.bin`) to the partition labeled `model` at offset `0x10000` using `esptool.py` or custom flash commands.
   4. Include `esp_afe_sr_iface.h` and use the default `ESP_AFE_SR_HANDLE` interface to feed and fetch audio chunks.
 
+Kavishka Dulshan
