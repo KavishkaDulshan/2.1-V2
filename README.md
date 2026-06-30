@@ -29,12 +29,6 @@ This project runs a companion robot control system on an **ESP32-S3-N16R8** deve
 │   ├── RobotEyes.cpp            # Eye physics & rendering logic
 │   └── RobotEyes.h              # Eye structures and declarations
 ├── lib/                         # Project Libraries
-│   └── a2.1-KWS_inferencing/    # Local Edge Impulse keyword spotting library
-├── original/                    # Original Arduino IDE sketches (Reference)
-│   ├── main.ino
-│   ├── RobotEyes.cpp
-│   └── RobotEyes.h
-│   └── sketch.yaml
 └── README.md                    # Project documentation
 ```
 
@@ -68,7 +62,6 @@ Converting the original Arduino sketch in the `original/` directory to this comp
 
 ### 2. Library Isolation
 - **Global vs Local**: Instead of installing libraries globally via the Arduino IDE Library Manager, libraries are strictly version-controlled inside `platformio.ini` under `lib_deps`.
-- **Custom Local Library**: The Edge Impulse machine learning library (`a2.1-KWS_inferencing`) is located locally inside the `lib/` directory so PlatformIO bundles it automatically during builds.
 
 ### 3. Task Management (FreeRTOS)
 - **Multithreading**: In Arduino, everything is typically sequential. In PlatformIO, the audio monitoring is separated into a dedicated FreeRTOS thread (`audioInferenceTask`) pinned to Core 0 using `xTaskCreatePinnedToCore()`. 
@@ -100,46 +93,46 @@ The following critical issues were resolved to get the firmware running cleanly 
 * **Issue**: The Git repository was tracking 2,000+ files because of the auto-generated dependency directories `managed_components/` and C++ compiler telemetry files `compile_commands.json`.
 * **Fix**: Configured `.gitignore` to properly exclude `managed_components/` and `compile_commands.json`, reducing the repository tracking footprint to source-only files.
 
----
+## ESP-SR (Keyword Spotting & Voice Commands) Architecture Plan
 
-## Future Keyword Spotting (KWS) Options
+The ESP32-S3 is highly capable of running real-time voice keyword spotting and speech command recognition natively. This project is configured to use Espressif's native **ESP-SR** framework to leverage:
 
-The ESP32-S3 is highly capable of running real-time voice keyword spotting. If you plan to implement this in the future under PlatformIO, here are the two primary paths:
+1. **Hardware Vector Acceleration**: 
+   ESP-SR hooks directly into the ESP32-S3's native 128-bit SIMD vector engine. This accelerates matrix math and audio processing algorithms (like FFT and AFE filtering) up to 10x faster than standard scalar CPU instructions used in software emulation.
+   
+2. **Decoupled Memory Architecture**: 
+   Instead of compiling large neural network weights directly into the firmware binary, ESP-SR stores voice models as an independent `model.bin` file inside a dedicated 4MB flash partition (`model`, configured in `partitions.csv`). At boot time, the ESP-SR memory manager dynamically maps this memory space.
 
-### Path A: Edge Impulse (TensorFlow Lite Micro)
-* **Status**: Ready. The required library `a2.1-KWS_inferencing` is already in your `lib/` directory and compiles successfully under PlatformIO.
-* **Requirements**: Runs completely inside internal SRAM (does not require PSRAM to work).
-* **Implementation Plan**:
-  1. Re-add the header `#include <a2.1-KWS_inferencing.h>` in `src/main.cpp`.
-  2. Implement an audio signal reader callback:
-     ```cpp
-     int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr) {
-         for (size_t i = 0; i < length; i++) {
-             int idx = (ring_position + offset + i) % INFER_WINDOW;
-             out_ptr[i] = (float)audio_buffer[idx];
-         }
-         return 0;
-     }
-     ```
-  3. Inside `audioInferenceTask`, invoke the classifier regularly:
-     ```cpp
-     signal_t signal;
-     signal.total_length = INFER_WINDOW;
-     signal.get_data = &microphone_audio_signal_get_data;
-     ei_impulse_result_t result = { 0 };
-     EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
-     if (err == EI_IMPULSE_OK) {
-         // Check result.classification[i] confidence scores (e.g. "wake" score > 0.6)
-     }
-     ```
+3. **True Asynchronous Core Balancing**: 
+   The resource-heavy I2S microphone processing, Acoustic Front End (AFE), Automatic Gain Control (AGC), and acoustic model inference run in a background FreeRTOS thread (`audioInferenceTask`) pinned to **Core 0**. This completely isolates voice processing and prevents it from blocking or stuttering the real-time LovyanGFX display animations and physics engines running concurrently on **Core 1**.
 
-### Path B: Espressif ESP-SR (WakeNet & MultiNet)
-* **Status**: Requires hardware configuration.
-* **Requirements**: Requires working Octal PSRAM at the hardware boot level.
-* **Implementation Plan**:
-  1. Run `pio run -t menuconfig` in the VS Code terminal to open Espressif's SDK configuration menu.
-  2. Under `Component Config -> ESP32S3-Specific Settings`, enable PSRAM support (`CONFIG_SPIRAM=y`) so that the ESP-SR Acoustic Front End (AFE) can allocate its internal memory frames.
-  3. Flash the custom voice models (such as `model.bin`) to the partition labeled `model` at offset `0x10000` using `esptool.py` or custom flash commands.
-  4. Include `esp_afe_sr_iface.h` and use the default `ESP_AFE_SR_HANDLE` interface to feed and fetch audio chunks.
+### Implementation Steps
+
+#### 1. Hardware Boot PSRAM Configuration
+ESP-SR requires working Octal PSRAM at the hardware level.
+* Run `pio run -t menuconfig` inside the project directory to open Espressif's SDK configuration.
+* Under `Component Config -> ESP32S3-Specific Settings`, verify that PSRAM support (`CONFIG_SPIRAM=y`) is enabled and configured to match the N16R8 module.
+
+#### 2. Partition & Model Flashing
+* The voice recognition acoustic model (`model.bin`) must be flashed into the dedicated `model` partition at its corresponding flash offset (defined dynamically or using Espressif's command line flash utilities).
+
+#### 3. Core 0 Inference Loop
+* Include `<esp_afe_sr_iface.h>` and `<esp_afe_sr_models.h>`.
+* Initialize the Acoustic Front End (AFE) and set up the interface instance:
+  ```cpp
+  esp_afe_sr_iface_t *afe_handle = &ESP_AFE_SR_HANDLE;
+  esp_afe_sr_data_t *afe_data = afe_handle->create_from_config(&afe_config);
+  ```
+* Feed audio frames fetched from the I2S microphone into the AFE processor:
+  ```cpp
+  afe_handle->feed(afe_data, mic_data_buffer);
+  ```
+* Fetch processed AFE frames and run WakeNet (wake word detection) and MultiNet (command phrase recognition):
+  ```cpp
+  afe_fetch_result_t* result = afe_handle->fetch(afe_data);
+  if (result && result->trigger_rv == trigger_wakeup) {
+      // Handle voice triggers and pass command flags to Core 1
+  }
+  ```
 
 Kavishka Dulshan
