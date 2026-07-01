@@ -13,15 +13,21 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-// Your custom trained model asset file
 #include "model_data.h"
 #include "RobotEyes.h"
 
+// =========================================================================
+// 🛑 DEBUG CONTROL SWITCH
+// false = Standard operation, prints AI Thoughts and KeyWord Triggers
+// true  = Prints raw microphone wave for Serial Plotter visualizer
+#define DEBUG_AUDIO_WAVE false 
+// =========================================================================
+
 // --- HARDWARE CONFIGURATION ---
-#define RX_PIN 18     // Camera RX
-#define TX_PIN 17     // Camera TX
-#define TOUCH_PIN 14  // Capacitive Touch Sensor
-#define VIBE_PIN 13   // Vibrator Motor Module
+#define RX_PIN 18     
+#define TX_PIN 17     
+#define TOUCH_PIN 14  
+#define VIBE_PIN 13   
 
 #define I2S_WS 15
 #define I2S_SD 7
@@ -31,12 +37,11 @@
 // --- AUDIO DSP CONSTANTS ---
 #define SAMPLE_RATE 16000
 #define FFT_SIZE 512
-#define FRAME_LEN 480     // 30ms frame window
-#define HOP_LEN 160       // 10ms frame stride
+#define FRAME_LEN 480     
+#define HOP_LEN 160       
 #define N_MELS 40
-#define TIME_FRAMES 151   // 1.5 seconds total window matrix
+#define TIME_FRAMES 151   
 
-// Hardware objects
 Adafruit_MPU6050 mpu;
 RobotEyes eyes;
 
@@ -65,7 +70,6 @@ public:
 LGFX display;
 LGFX_Sprite sprite(&display);
 
-// Shared Global App Flags
 volatile bool keywordDetected = false;
 unsigned long lastInteractionTime = 0;
 unsigned long emotionOverrideTimer = 0;
@@ -78,50 +82,35 @@ unsigned long innocentReleaseTime = 0;
 TaskHandle_t audioTaskHandle;
 bool processCameraData();
 
-// --- TFLITE MICRO INFERENCE ENGINE GLOBAL FIELDS ---
 namespace {
   const tflite::Model* model = nullptr;
   tflite::MicroInterpreter* interpreter = nullptr;
   TfLiteTensor* input = nullptr;
   TfLiteTensor* output = nullptr;
   
-  // 128KB memory arena to run matrix math efficiently inside internal RAM/PSRAM
   constexpr int kTensorArenaSize = 160 * 1024;
   alignas(16) uint8_t tensor_arena[kTensorArenaSize];
   
-  // Real-time feature extraction rolling buffer matrix
   float spectrogram_matrix[TIME_FRAMES][N_MELS];
   int spectrogram_write_index = 0;
   
-  // Mel-Filterbank weights array generated dynamically at boot
   float mel_filters[N_MELS][FFT_SIZE / 2 + 1];
   float window_coefficients[FRAME_LEN];
 }
 
-// Programmatic conversion helper to map linear frequencies to the Mel-scale
-float hzToMel(float hz) {
-  return 2595.0f * log10f(1.0f + hz / 700.0f);
-}
+float hzToMel(float hz) { return 2595.0f * log10f(1.0f + hz / 700.0f); }
+float melToHz(float mel) { return 700.0f * (powf(10.0f, mel / 2595.0f) - 1.0f); }
 
-float melToHz(float mel) {
-  return 700.0f * (powf(10.0f, mel / 2595.0f) - 1.0f);
-}
-
-// Pre-calculates triangular filter shapes at boot to save CPU cycles during runtime execution
 void initMelFilterbank() {
   float min_mel = hzToMel(0.0f);
   float max_mel = hzToMel(SAMPLE_RATE / 2.0f);
   float mel_step = (max_mel - min_mel) / (N_MELS + 1);
   
   float mel_points[N_MELS + 2];
-  for (int i = 0; i < N_MELS + 2; ++i) {
-    mel_points[i] = min_mel + i * mel_step;
-  }
+  for (int i = 0; i < N_MELS + 2; ++i) mel_points[i] = min_mel + i * mel_step;
   
   int bin_points[N_MELS + 2];
-  for (int i = 0; i < N_MELS + 2; ++i) {
-    bin_points[i] = (int)floorf((FFT_SIZE + 1) * melToHz(mel_points[i]) / SAMPLE_RATE);
-  }
+  for (int i = 0; i < N_MELS + 2; ++i) bin_points[i] = (int)floorf((FFT_SIZE + 1) * melToHz(mel_points[i]) / SAMPLE_RATE);
   
   memset(mel_filters, 0, sizeof(mel_filters));
   for (int m = 1; m <= N_MELS; ++m) {
@@ -129,30 +118,18 @@ void initMelFilterbank() {
     int center_bin = bin_points[m];
     int end_bin = bin_points[m + 1];
     
-    for (int k = start_bin; k < center_bin; ++k) {
-      if ((center_bin - start_bin) > 0)
-        mel_filters[m - 1][k] = (float)(k - start_bin) / (center_bin - start_bin);
-    }
-    for (int k = center_bin; k < end_bin; ++k) {
-      if ((end_bin - center_bin) > 0)
-        mel_filters[m - 1][k] = (float)(end_bin - k) / (end_bin - center_bin);
-    }
+    for (int k = start_bin; k < center_bin; ++k)
+      if ((center_bin - start_bin) > 0) mel_filters[m - 1][k] = (float)(k - start_bin) / (center_bin - start_bin);
+    for (int k = center_bin; k < end_bin; ++k)
+      if ((end_bin - center_bin) > 0) mel_filters[m - 1][k] = (float)(end_bin - k) / (end_bin - center_bin);
   }
-  
-  // Populate standard windowing coefficients to flatten raw frame transitions
   dsps_wind_hann_f32(window_coefficients, FRAME_LEN);
 }
 
 // --- THE VECTOR-ACCELERATED AI TASK CORE 0 ---
 void audioInferenceTask(void *pvParameters) {
-  // 1. Load your compiled INT8 flatbuffer model schema
   model = tflite::GetModel(g_model_tflite);
-  if (model->version() != TFLITE_SCHEMA_VERSION) {
-    Serial.println("❌ ERROR: TFLite Schema Mismatch!");
-    vTaskDelete(NULL);
-  }
-
-  // 2. THE TRUE FIX: Exact capacity for standard and hidden quantization operations
+  
   static tflite::MicroMutableOpResolver<10> op_resolver; 
   op_resolver.AddConv2D();
   op_resolver.AddMaxPool2D();
@@ -165,68 +142,55 @@ void audioInferenceTask(void *pvParameters) {
   op_resolver.AddQuantize();
   op_resolver.AddDequantize();
 
-  // 3. Instantiate the runtime interpreter pipeline
-  static tflite::MicroInterpreter static_interpreter(
-    model, op_resolver, tensor_arena, kTensorArenaSize
-  );
+  static tflite::MicroInterpreter static_interpreter(model, op_resolver, tensor_arena, kTensorArenaSize);
   interpreter = &static_interpreter;
-
-  if (interpreter->AllocateTensors() != kTfLiteOk) {
-    Serial.println("❌ ERROR: Failed to allocate Tensor Arena memory!");
-    vTaskDelete(NULL);
-  }
+  interpreter->AllocateTensors();
 
   input = interpreter->input(0);
   output = interpreter->output(0);
 
-  // Initialize your local DSP coefficients
   initMelFilterbank();
-  esp_err_t dsp_status = dsps_fft2r_init_fc32(NULL, CONFIG_DSP_MAX_FFT_SIZE);
-  if (dsp_status != ESP_OK) {
-    Serial.println("❌ ERROR: Failed to initialize esp-dsp subsystem.");
-  }
+  dsps_fft2r_init_fc32(NULL, CONFIG_DSP_MAX_FFT_SIZE);
 
-  // Rolling frame sample history arrays
   float audio_frame_buffer[FRAME_LEN] = {0};
-  float fft_input_buffer[FFT_SIZE * 2] = {0}; // Complex interleaved layout
-  int16_t mic_dma_chunk[HOP_LEN];             // 10ms raw sample slice
+  float fft_input_buffer[FFT_SIZE * 2] = {0};
+  int32_t mic_dma_chunk[HOP_LEN];             
+  
+  // FIX #1: Decouple inference from the audio listener!
+  int frames_since_last_inference = 0;
+  // Use exact Gain Factor from main.ino
+  float SOFTWARE_GAIN = 3.0f; 
 
-  Serial.println("✅ Custom TFLite Vector Engine Locked & Active on Core 0!");
+  if (!DEBUG_AUDIO_WAVE) Serial.println("✅ Custom TFLite Engine Locked & Active!");
 
   while (true) {
     size_t bytes_read = 0;
-    // Read a clean 10ms slice from the physical microphone stream
-    esp_err_t res = i2s_read(I2S_PORT, mic_dma_chunk, HOP_LEN * sizeof(int16_t), &bytes_read, portMAX_DELAY);
+    esp_err_t res = i2s_read(I2S_PORT, mic_dma_chunk, HOP_LEN * sizeof(int32_t), &bytes_read, portMAX_DELAY);
     
     if (res == ESP_OK && bytes_read > 0) {
-            static unsigned long lastLog = 0;
-      int16_t max_peak = 0;
-      for(int i = 0; i < HOP_LEN; i++) {
-        if(abs(mic_dma_chunk[i]) > max_peak) max_peak = abs(mic_dma_chunk[i]);
-      }
-      if(millis() - lastLog > 1000) {
-        Serial.printf("🔊 MIC PEAK VOLUME: %d\n", max_peak);
-        lastLog = millis();
-      }
-      // Cascade the sliding window buffer: push older entries left, drop the head
       memmove(audio_frame_buffer, audio_frame_buffer + HOP_LEN, (FRAME_LEN - HOP_LEN) * sizeof(float));
+      
       for (int i = 0; i < HOP_LEN; ++i) {
-        audio_frame_buffer[FRAME_LEN - HOP_LEN + i] = (float)mic_dma_chunk[i];
+        // FIX #2: Exact replica of main.ino amplification and clipping
+        int32_t amplified = (mic_dma_chunk[i] >> 14) * SOFTWARE_GAIN;
+        if (amplified > 32767) amplified = 32767;
+        else if (amplified < -32768) amplified = -32768;
+        int16_t pcm_sample = (int16_t)amplified;
+        
+        if (DEBUG_AUDIO_WAVE && i % 4 == 0) {
+            Serial.printf(">Mic:%d\n", pcm_sample);
+        }
+
+        audio_frame_buffer[FRAME_LEN - HOP_LEN + i] = (float)pcm_sample / 32768.0f;
       }
       
-      // Execute window calculations and fill complex float spectrum structures
       memset(fft_input_buffer, 0, sizeof(fft_input_buffer));
       for (int i = 0; i < FRAME_LEN; ++i) {
         fft_input_buffer[i * 2] = audio_frame_buffer[i] * window_coefficients[i];
       }
       
-      // Execute hardware-accelerated radix-2 Fast Fourier Transform
       dsps_fft2r_fc32(fft_input_buffer, FFT_SIZE);
       dsps_bit_rev_fc32(fft_input_buffer, FFT_SIZE);
-      
-      // Map spectral energy magnitudes down into the 40 Mel filter coefficients
-      float current_mel_frame[N_MELS] = {0};
-      float peak_reference = 1e-5f;
       
       for (int m = 0; m < N_MELS; ++m) {
         float energy_sum = 0;
@@ -236,56 +200,62 @@ void audioInferenceTask(void *pvParameters) {
           float power = (real * real) + (imag * imag);
           energy_sum += power * mel_filters[m][k];
         }
-        current_mel_frame[m] = energy_sum;
-        if (energy_sum > peak_reference) peak_reference = energy_sum;
-      }
-      
-      // Scale logarithmic decibel ratios directly into the active tracking slot
-      for (int m = 0; m < N_MELS; ++m) {
-        float log_db = 10.0f * log10f(current_mel_frame[m] / peak_reference + 1e-5f);
-        spectrogram_matrix[spectrogram_write_index][m] = log_db;
+        if (energy_sum < 1e-10f) energy_sum = 1e-10f;
+        spectrogram_matrix[spectrogram_write_index][m] = 10.0f * log10f(energy_sum);
       }
       
       spectrogram_write_index = (spectrogram_write_index + 1) % TIME_FRAMES;
-      
-      // --- PACK INFRASTRUCTURE MATRIX & EXECUTE VECTOR INFERENCE ---
-      int8_t* tensor_input_ptr = input->data.int8;
-      float input_scale = input->params.scale;
-      int input_zero_point = input->params.zero_point;
-      
-      int read_cursor = spectrogram_write_index;
-      for (int t = 0; t < TIME_FRAMES; ++t) {
-        for (int m = 0; m < N_MELS; ++m) {
-          float raw_val = spectrogram_matrix[read_cursor][m];
-          // Dynamically quantize raw float features into localized model INT8 bounds
-          int quantized_val = (int)roundf(raw_val / input_scale) + input_zero_point;
-          if (quantized_val > 127)  quantized_val = 127;
-          if (quantized_val < -128) quantized_val = -128;
+      frames_since_last_inference++;
+
+      // FIX #3: Throttle AI to run every ~330ms (33 frames). 
+      // Prevents I2S drops and gives the AI a clean window to look at!
+      if (frames_since_last_inference >= 33) {
+          frames_since_last_inference = 0;
+
+          float max_db = -999.0f;
+          for (int t = 0; t < TIME_FRAMES; ++t) {
+            for (int m = 0; m < N_MELS; ++m) {
+              if (spectrogram_matrix[t][m] > max_db) max_db = spectrogram_matrix[t][m];
+            }
+          }
           
-          // Model matrix assignment mapping: [Mel Bands x Time Frames]
-          tensor_input_ptr[m * TIME_FRAMES + t] = (int8_t)quantized_val;
-        }
-        read_cursor = (read_cursor + 1) % TIME_FRAMES;
-      }
-      
-      // Invoke the model execution loops across the S3 arithmetic units
-// Invoke the model execution
-      if (interpreter->Invoke() == kTfLiteOk) {
-        int8_t negative_score = output->data.int8[0];
-        int8_t positive_score = output->data.int8[1];
-        
-        // Debug: Print scores every 500ms to avoid flooding the terminal
-        static unsigned long lastPrint = 0;
-        if (millis() - lastPrint > 500) {
+          int8_t* tensor_input_ptr = input->data.int8;
+          float input_scale = input->params.scale;
+          int input_zero_point = input->params.zero_point;
+          
+          int read_cursor = spectrogram_write_index;
+          for (int t = 0; t < TIME_FRAMES; ++t) {
+            for (int m = 0; m < N_MELS; ++m) {
+              float db_normalized = spectrogram_matrix[read_cursor][m] - max_db;
+              if (db_normalized < -80.0f) db_normalized = -80.0f;
+
+              int quantized_val = (int)roundf(db_normalized / input_scale) + input_zero_point;
+              if (quantized_val > 127)  quantized_val = 127;
+              if (quantized_val < -128) quantized_val = -128;
+              
+              tensor_input_ptr[m * TIME_FRAMES + t] = (int8_t)quantized_val;
+            }
+            read_cursor = (read_cursor + 1) % TIME_FRAMES;
+          }
+          
+          if (interpreter->Invoke() == kTfLiteOk && !DEBUG_AUDIO_WAVE) {
+            int8_t negative_score = output->data.int8[0];
+            int8_t positive_score = output->data.int8[1];
+            
+            // Print thoughts exactly as they happen (every 330ms)
             Serial.printf("AI THOUGHTS -> Pos: %d | Neg: %d\n", positive_score, negative_score);
-            lastPrint = millis();
-        }
-        
-        // Trigger verification (Lowered threshold temporarily to 50 for testing)
-        if (positive_score > negative_score && positive_score > 50) { 
-          keywordDetected = true;
-          Serial.printf("🎯 KEYWORD MATCH FOUND! Score: %d\n", positive_score);
-        }
+
+            // Trigger if positive score beats negative score
+            if (positive_score > negative_score && positive_score > 30) { 
+              keywordDetected = true;
+              Serial.printf("🎯 KEYWORD MATCH FOUND! Score: %d\n", positive_score);
+
+              // Clear matrix so it doesn't double-trigger on the exact same word
+              for(int t=0; t<TIME_FRAMES; t++) {
+                  for(int m=0; m<N_MELS; m++) spectrogram_matrix[t][m] = -80.0f;
+              }
+            }
+          }
       }
     }
     vTaskDelay(pdMS_TO_TICKS(1));
@@ -294,8 +264,8 @@ void audioInferenceTask(void *pvParameters) {
 
 void setup() {
   Serial.begin(115200);
-  delay(3000);
-  Serial.println("\n--- ROBOT BOOTING ---");
+  delay(2000); 
+
   Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); 
 
   pinMode(TOUCH_PIN, INPUT);
@@ -317,11 +287,10 @@ void setup() {
     mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
   }
 
-  // --- ARRANGE NATIVE I2S DMA CONTROLLER CHANNELS ---
   const i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT, 
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT, 
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
@@ -346,10 +315,7 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   i2s_start(I2S_PORT);
 
-  // Run the vector accelerated voice inference task on Core 0
-  xTaskCreatePinnedToCore(
-    audioInferenceTask, "AudioAI", 16384, NULL, 5, &audioTaskHandle, 0
-  );
+  xTaskCreatePinnedToCore(audioInferenceTask, "AudioAI", 16384, NULL, 5, &audioTaskHandle, 0);
   
   lastInteractionTime = millis();
 }
@@ -416,7 +382,6 @@ void loop() {
       tapCount = 0;
   }
 
-  // --- CONNECT CUSTOM AI FLAG DIRECTLY TO EMOTION STATE CONTROLLER ---
   if (keywordDetected) {
       lastInteractionTime = millis(); 
       keywordDetected = false; 
