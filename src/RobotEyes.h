@@ -14,7 +14,8 @@ enum Emotion
   ASLEEP,
   INNOCENT,
   DIZZY,
-  WAKEUP
+  WAKEUP,
+  GUARDING
 };
 
 class RobotEyes
@@ -71,6 +72,9 @@ private:
 
   // Transition blink (smooth crossfade on emotion switch)
   float transitionBlink = 0.0f;
+
+  // Guard Physics
+  float guardScanAngle = 0.0f;
 
 public:
   void init();

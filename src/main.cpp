@@ -72,6 +72,7 @@ bool wakeupFromTouch = false;
 unsigned long wakeupTouchTime = 0;
 bool innocentOverride = false;
 unsigned long innocentReleaseTime = 0;
+bool guardMode = false;
 
 TaskHandle_t i2sTaskHandle;
 TaskHandle_t audioTaskHandle;
@@ -301,15 +302,16 @@ void loop() {
 
   if (keyword_wake_word || keyword_cmd_sleep || keyword_cmd_guard) {
       lastInteractionTime = millis();
+      guardMode = false; // Any voice command drops guard mode
       
       if (keyword_cmd_sleep) {
-          eyes.setEmotion(ASLEEP);
-          emotionOverrideTimer = millis();
-          hasEmotionOverride = true;
+          // Trick the idle timer into thinking 25 seconds have passed so it falls into deep ASLEEP naturally
+          lastInteractionTime = millis() - 25000;
+          hasEmotionOverride = false; 
       } else if (keyword_cmd_guard) {
-          eyes.setEmotion(ANGRY);
-          emotionOverrideTimer = millis();
-          hasEmotionOverride = true;
+          eyes.setEmotion(GUARDING);
+          guardMode = true;
+          hasEmotionOverride = false; // Persistent state, no timeout
       } else if (keyword_wake_word) {
           if (isSleeping) {
               eyes.setEmotion(WAKEUP);
@@ -331,7 +333,12 @@ void loop() {
 
   if (isTouched) {
       lastInteractionTime = millis();
-      if (isSleeping) {
+      if (guardMode) {
+          guardMode = false;
+          eyes.setEmotion(ANGRY);
+          emotionOverrideTimer = millis();
+          hasEmotionOverride = true;
+      } else if (isSleeping) {
           if (!wakeupFromTouch) {
               eyes.setEmotion(WAKEUP);
               emotionOverrideTimer = millis();
@@ -367,7 +374,12 @@ void loop() {
 
   if (physicallyMoved) {
       lastInteractionTime = millis();
-      if (!strongPhysical && (curEmotion == SLEEPY || curEmotion == ASLEEP)) {
+      if (guardMode) {
+          guardMode = false;
+          eyes.setEmotion(ANGRY);
+          emotionOverrideTimer = millis();
+          hasEmotionOverride = true;
+      } else if (!strongPhysical && (curEmotion == SLEEPY || curEmotion == ASLEEP)) {
           eyes.setEmotion(WAKEUP);
           emotionOverrideTimer = millis();
           hasEmotionOverride   = true;
@@ -389,12 +401,12 @@ void loop() {
       }
   }
 
-  if (hasEmotionOverride && !isTouched && !innocentOverride && (millis() - emotionOverrideTimer > 3000)) {
+  if (hasEmotionOverride && !isTouched && !innocentOverride && !guardMode && (millis() - emotionOverrideTimer > 3000)) {
       eyes.setEmotion(NEUTRAL);
       hasEmotionOverride = false;
   }
 
-  if (!hasEmotionOverride && !isTouched && !innocentOverride) {
+  if (!hasEmotionOverride && !isTouched && !innocentOverride && !guardMode) {
       unsigned long idleTime = millis() - lastInteractionTime;
       if      (idleTime > 20000 && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(ASLEEP);
       else if (idleTime > 10000 && eyes.getEmotion() != SLEEPY && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(SLEEPY);

@@ -71,6 +71,13 @@ void RobotEyes::setEmotion(Emotion e)
     blinkState = 1.0f; // Start closed, will snap open in update
     easeFactor = 0.3f;
   }
+  else if (e == GUARDING)
+  {
+    guardScanAngle = 0.0f;
+    targetX = 0;
+    targetY = 0;
+    easeFactor = 0.1f; // Slow, deliberate panning
+  }
   else
   {
     targetX = 0;
@@ -133,6 +140,16 @@ void RobotEyes::update()
         blinkState = 0;
     }
     return; // Hold wide open
+  }
+
+  // --- NEW: GUARDING ANIMATION ---
+  if (currentEmotion == GUARDING)
+  {
+    guardScanAngle += 0.03f; // Slow panning
+    targetX = sin(guardScanAngle) * 12.0f; // Sweep pupils side to side
+    targetY = 0;
+    blinkState = 0.0f;
+    return;
   }
 
   // --- ASLEEP ANIMATION (Deep Sleep with REM phases) ---
@@ -449,6 +466,28 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
       int shX = x + (int)(cos(innocentPulseAngle) * (eyeW / 2 + 3));
       int shY = y - iHe / 3 + (int)(sin(innocentPulseAngle * 1.5f) * 3);
       spr->fillCircle(shX, shY, 1, TFT_WHITE);
+    }
+    return;
+  }
+
+  // GUARDING (Narrow slits, scanning)
+  if (currentEmotion == GUARDING)
+  {
+    float effectiveBlink = max(blinkState, transitionBlink);
+    int guardH = 12; // Narrow slits
+    int h = max(2, (int)(guardH * (1.0f - effectiveBlink)));
+    
+    spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, TFT_WHITE);
+
+    if (h > 6)
+    {
+      int pX = x + curX;
+      int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
+
+      // Small pinpoint pupil for scanning
+      int effR = 4;
+      spr->fillCircle(pX, pY, effR, TFT_BLACK);
+      spr->fillCircle(pX + 1, pY - 1, 1, TFT_WHITE);
     }
     return;
   }
