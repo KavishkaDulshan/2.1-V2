@@ -75,6 +75,7 @@ private:
 
   // Guard Physics
   float guardScanAngle = 0.0f;
+  unsigned long lastLookAtTime = 0;
 
 public:
   void init();

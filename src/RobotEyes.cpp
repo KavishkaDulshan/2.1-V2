@@ -91,6 +91,7 @@ void RobotEyes::lookAt(float x, float y)
   // Only controls PUPIL
   targetX = constrain(x, -1.0, 1.0) * 14.0;
   targetY = constrain(y, -1.0, 1.0) * 10.0;
+  lastLookAtTime = millis();
 }
 
 void RobotEyes::setEyeOffset(float x, float y)
@@ -145,9 +146,15 @@ void RobotEyes::update()
   // --- NEW: GUARDING ANIMATION ---
   if (currentEmotion == GUARDING)
   {
-    guardScanAngle += 0.03f; // Slow panning
-    targetX = sin(guardScanAngle) * 12.0f; // Sweep pupils side to side
-    targetY = 0;
+    if (now - lastLookAtTime > 2000) {
+        // No camera movement detected recently -> slowly pan left and right
+        guardScanAngle += 0.03f; 
+        targetX = sin(guardScanAngle) * 12.0f;
+        targetY = 0;
+    } else {
+        // Camera tracked movement -> keep targetX and targetY from lookAt()
+        // so the eyes instantly track the intruder!
+    }
     blinkState = 0.0f;
     return;
   }
@@ -470,24 +477,41 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     return;
   }
 
-  // GUARDING (Narrow slits, scanning)
+  // GUARDING (Fierce "Eagle Eyes" Scanner)
   if (currentEmotion == GUARDING)
   {
     float effectiveBlink = max(blinkState, transitionBlink);
-    int guardH = 12; // Narrow slits
-    int h = max(2, (int)(guardH * (1.0f - effectiveBlink)));
+    int h = max(2, (int)(eyeH * (1.0f - effectiveBlink)));
     
-    spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, TFT_WHITE);
+    // Draw the sharp eagle-eye sclera
+    // A large triangle sloping downwards towards the center creates an aggressive brow
+    int innerY = y - h / 2 + 12; // Slope down towards center
+    int outerY = y - h / 2 - 4;  // Lifted up at the edges
+    
+    if (side == -1) {
+        // Left eye
+        spr->fillTriangle(x - eyeW / 2, outerY, x + eyeW / 2, innerY, x - eyeW / 2, y + h / 2, TFT_WHITE);
+        spr->fillTriangle(x + eyeW / 2, innerY, x + eyeW / 2, y + h / 2, x - eyeW / 2, y + h / 2, TFT_WHITE);
+    } else {
+        // Right eye
+        spr->fillTriangle(x + eyeW / 2, outerY, x - eyeW / 2, innerY, x + eyeW / 2, y + h / 2, TFT_WHITE);
+        spr->fillTriangle(x - eyeW / 2, innerY, x - eyeW / 2, y + h / 2, x + eyeW / 2, y + h / 2, TFT_WHITE);
+    }
 
     if (h > 6)
     {
       int pX = x + curX;
-      int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
+      int pY = constrain(y + (int)curY, y - h / 4, y + h / 2 - pupilR - 2);
 
-      // Small pinpoint pupil for scanning
-      int effR = 4;
+      // Intense glowing pupil (red/orange if we had color, but white/black on monochrome)
+      // Large dark pupil with a striking piercing catchlight
+      int effR = 8;
       spr->fillCircle(pX, pY, effR, TFT_BLACK);
-      spr->fillCircle(pX + 1, pY - 1, 1, TFT_WHITE);
+      
+      // Piercing crosshair-style catchlight
+      spr->drawLine(pX - 2, pY, pX + 2, pY, TFT_WHITE);
+      spr->drawLine(pX, pY - 2, pX, pY + 2, TFT_WHITE);
+      spr->fillCircle(pX, pY, 1, TFT_WHITE); // Glowing center
     }
     return;
   }

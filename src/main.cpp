@@ -302,17 +302,19 @@ void loop() {
 
   if (keyword_wake_word || keyword_cmd_sleep || keyword_cmd_guard) {
       lastInteractionTime = millis();
-      guardMode = false; // Any voice command drops guard mode
       
       if (keyword_cmd_sleep) {
-          // Trick the idle timer into thinking 25 seconds have passed so it falls into deep ASLEEP naturally
-          lastInteractionTime = millis() - 25000;
-          hasEmotionOverride = false; 
+          if (!guardMode) { // Ignore sleep command if guarding
+              // Trick the idle timer into thinking 10 seconds have passed so it plays SLEEPY naturally
+              lastInteractionTime = millis() - 10001;
+              hasEmotionOverride = false; 
+          }
       } else if (keyword_cmd_guard) {
           eyes.setEmotion(GUARDING);
           guardMode = true;
           hasEmotionOverride = false; // Persistent state, no timeout
       } else if (keyword_wake_word) {
+          guardMode = false; // Only wake_word drops guard mode
           if (isSleeping) {
               eyes.setEmotion(WAKEUP);
               emotionOverrideTimer = millis();
@@ -334,7 +336,7 @@ void loop() {
   if (isTouched) {
       lastInteractionTime = millis();
       if (guardMode) {
-          guardMode = false;
+          // Intruder detected! Do NOT drop guardMode, just trigger angry alarm
           eyes.setEmotion(ANGRY);
           emotionOverrideTimer = millis();
           hasEmotionOverride = true;
@@ -375,7 +377,7 @@ void loop() {
   if (physicallyMoved) {
       lastInteractionTime = millis();
       if (guardMode) {
-          guardMode = false;
+          // Intruder detected! Do NOT drop guardMode
           eyes.setEmotion(ANGRY);
           emotionOverrideTimer = millis();
           hasEmotionOverride = true;
