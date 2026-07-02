@@ -6,14 +6,9 @@
 #include <driver/i2s.h>
 #include <math.h>
 
-// --- ESP-DSP AND TFLITE MICRO HEADERS ---
-#include "esp_dsp.h"
-#include "tensorflow/lite/micro/micro_interpreter.h"
-#include "tensorflow/lite/micro/micro_log.h"
-#include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
-#include "tensorflow/lite/schema/schema_generated.h"
+// --- EDGE IMPULSE HEADER ---
+#include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 
-#include "model_data.h"
 #include "RobotEyes.h"
 
 // =========================================================================
@@ -34,13 +29,10 @@
 #define I2S_SCK 16
 #define I2S_PORT I2S_NUM_0
 
-// --- AUDIO DSP CONSTANTS ---
+// --- EDGE IMPULSE CONSTANTS ---
 #define SAMPLE_RATE 16000
-#define FFT_SIZE 512
-#define FRAME_LEN 480     
-#define HOP_LEN 160       
-#define N_MELS 40
-#define TIME_FRAMES 151   
+#define AUDIO_CHUNK_SIZE 160
+#define AUDIO_RING_BUFFER_SIZE 12000
 
 Adafruit_MPU6050 mpu;
 RobotEyes eyes;
@@ -70,7 +62,9 @@ public:
 LGFX display;
 LGFX_Sprite sprite(&display);
 
-volatile bool keywordDetected = false;
+volatile bool keyword_wake_word = false;
+volatile bool keyword_cmd_sleep = false;
+volatile bool keyword_cmd_guard = false;
 unsigned long lastInteractionTime = 0;
 unsigned long emotionOverrideTimer = 0;
 bool hasEmotionOverride = false;
@@ -79,192 +73,114 @@ unsigned long wakeupTouchTime = 0;
 bool innocentOverride = false;
 unsigned long innocentReleaseTime = 0;
 
+TaskHandle_t i2sTaskHandle;
 TaskHandle_t audioTaskHandle;
 bool processCameraData();
 
-namespace {
-  const tflite::Model* model = nullptr;
-  tflite::MicroInterpreter* interpreter = nullptr;
-  TfLiteTensor* input = nullptr;
-  TfLiteTensor* output = nullptr;
-  
-  constexpr int kTensorArenaSize = 160 * 1024;
-  alignas(16) uint8_t tensor_arena[kTensorArenaSize];
-  
-  float spectrogram_matrix[TIME_FRAMES][N_MELS];
-  int spectrogram_write_index = 0;
-  
-  float mel_filters[N_MELS][FFT_SIZE / 2 + 1];
-  float window_coefficients[FRAME_LEN];
+int16_t audio_buffer[EI_CLASSIFIER_RAW_SAMPLE_COUNT];
+volatile int ring_position = 0;
+volatile int samples_since_last_inference = 0;
+volatile int16_t max_amplitude = 0;
+
+int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_ptr) {
+    for (size_t i = 0; i < length; i++) {
+        int buffer_index = (ring_position + offset + i) % EI_CLASSIFIER_RAW_SAMPLE_COUNT;
+        out_ptr[i] = (float)audio_buffer[buffer_index];
+    }
+    return 0;
 }
 
-float hzToMel(float hz) { return 2595.0f * log10f(1.0f + hz / 700.0f); }
-float melToHz(float mel) { return 700.0f * (powf(10.0f, mel / 2595.0f) - 1.0f); }
-
-void initMelFilterbank() {
-  float min_mel = hzToMel(0.0f);
-  float max_mel = hzToMel(SAMPLE_RATE / 2.0f);
-  float mel_step = (max_mel - min_mel) / (N_MELS + 1);
-  
-  float mel_points[N_MELS + 2];
-  for (int i = 0; i < N_MELS + 2; ++i) mel_points[i] = min_mel + i * mel_step;
-  
-  int bin_points[N_MELS + 2];
-  for (int i = 0; i < N_MELS + 2; ++i) bin_points[i] = (int)floorf((FFT_SIZE + 1) * melToHz(mel_points[i]) / SAMPLE_RATE);
-  
-  memset(mel_filters, 0, sizeof(mel_filters));
-  for (int m = 1; m <= N_MELS; ++m) {
-    int start_bin = bin_points[m - 1];
-    int center_bin = bin_points[m];
-    int end_bin = bin_points[m + 1];
-    
-    for (int k = start_bin; k < center_bin; ++k)
-      if ((center_bin - start_bin) > 0) mel_filters[m - 1][k] = (float)(k - start_bin) / (center_bin - start_bin);
-    for (int k = center_bin; k < end_bin; ++k)
-      if ((end_bin - center_bin) > 0) mel_filters[m - 1][k] = (float)(end_bin - k) / (end_bin - center_bin);
-  }
-  dsps_wind_hann_f32(window_coefficients, FRAME_LEN);
+void i2sReadTask(void *pvParameters) {
+    int32_t mic_dma_chunk[AUDIO_CHUNK_SIZE];
+    while(true) {
+        size_t bytes_read = 0;
+        esp_err_t res = i2s_read(I2S_PORT, mic_dma_chunk, AUDIO_CHUNK_SIZE * sizeof(int32_t), &bytes_read, portMAX_DELAY);
+        if (res == ESP_OK && bytes_read > 0) {
+            int samples_read = bytes_read / sizeof(int32_t);
+            for (int i = 0; i < samples_read; ++i) {
+                int32_t amplified = (mic_dma_chunk[i] >> 14) * 3; // GAIN_FACTOR = 3
+                if (amplified > 32767) amplified = 32767;
+                else if (amplified < -32768) amplified = -32768;
+                
+                int16_t sample16 = (int16_t)amplified;
+                audio_buffer[ring_position] = sample16;
+                ring_position = (ring_position + 1) % EI_CLASSIFIER_RAW_SAMPLE_COUNT;
+                
+                if (abs(sample16) > max_amplitude) max_amplitude = abs(sample16);
+                samples_since_last_inference++;
+            }
+        }
+    }
 }
 
 // --- THE VECTOR-ACCELERATED AI TASK CORE 0 ---
 void audioInferenceTask(void *pvParameters) {
-  model = tflite::GetModel(g_model_tflite);
-  
-  static tflite::MicroMutableOpResolver<10> op_resolver; 
-  op_resolver.AddConv2D();
-  op_resolver.AddMaxPool2D();
-  op_resolver.AddReshape();
-  op_resolver.AddFullyConnected();
-  op_resolver.AddSoftmax();
-  op_resolver.AddShape();
-  op_resolver.AddStridedSlice();
-  op_resolver.AddPack();
-  op_resolver.AddQuantize();
-  op_resolver.AddDequantize();
+  if (!DEBUG_AUDIO_WAVE) Serial.println("✅ Edge Impulse Engine Locked & Active!");
 
-  static tflite::MicroInterpreter static_interpreter(model, op_resolver, tensor_arena, kTensorArenaSize);
-  interpreter = &static_interpreter;
-  interpreter->AllocateTensors();
-
-  input = interpreter->input(0);
-  output = interpreter->output(0);
-
-  initMelFilterbank();
-  dsps_fft2r_init_fc32(NULL, CONFIG_DSP_MAX_FFT_SIZE);
-
-  float audio_frame_buffer[FRAME_LEN] = {0};
-  float fft_input_buffer[FFT_SIZE * 2] = {0};
-  int32_t mic_dma_chunk[HOP_LEN];             
-  
-  // FIX #1: Decouple inference from the audio listener!
-  int frames_since_last_inference = 0;
-  // Use exact Gain Factor from main.ino
-  float SOFTWARE_GAIN = 3.0f; 
-
-  if (!DEBUG_AUDIO_WAVE) Serial.println("✅ Custom TFLite Engine Locked & Active!");
+  #define INFERENCE_EVERY_SAMPLES (EI_CLASSIFIER_RAW_SAMPLE_COUNT / 3) // Run AI every ~0.33 seconds (if 1s window)
 
   while (true) {
-    size_t bytes_read = 0;
-    esp_err_t res = i2s_read(I2S_PORT, mic_dma_chunk, HOP_LEN * sizeof(int32_t), &bytes_read, portMAX_DELAY);
-    
-    if (res == ESP_OK && bytes_read > 0) {
-      memmove(audio_frame_buffer, audio_frame_buffer + HOP_LEN, (FRAME_LEN - HOP_LEN) * sizeof(float));
-      
-      for (int i = 0; i < HOP_LEN; ++i) {
-        // FIX #2: Exact replica of main.ino amplification and clipping
-        int32_t amplified = (mic_dma_chunk[i] >> 14) * SOFTWARE_GAIN;
-        if (amplified > 32767) amplified = 32767;
-        else if (amplified < -32768) amplified = -32768;
-        int16_t pcm_sample = (int16_t)amplified;
-        
-        if (DEBUG_AUDIO_WAVE && i % 4 == 0) {
-            Serial.printf(">Mic:%d\n", pcm_sample);
-        }
+      if (samples_since_last_inference >= INFERENCE_EVERY_SAMPLES) {
+          samples_since_last_inference = 0;
 
-        audio_frame_buffer[FRAME_LEN - HOP_LEN + i] = (float)pcm_sample / 32768.0f;
-      }
-      
-      memset(fft_input_buffer, 0, sizeof(fft_input_buffer));
-      for (int i = 0; i < FRAME_LEN; ++i) {
-        fft_input_buffer[i * 2] = audio_frame_buffer[i] * window_coefficients[i];
-      }
-      
-      dsps_fft2r_fc32(fft_input_buffer, FFT_SIZE);
-      dsps_bit_rev_fc32(fft_input_buffer, FFT_SIZE);
-      
-      for (int m = 0; m < N_MELS; ++m) {
-        float energy_sum = 0;
-        for (int k = 0; k <= FFT_SIZE / 2; ++k) {
-          float real = fft_input_buffer[k * 2];
-          float imag = fft_input_buffer[k * 2 + 1];
-          float power = (real * real) + (imag * imag);
-          energy_sum += power * mel_filters[m][k];
-        }
-        if (energy_sum < 1e-10f) energy_sum = 1e-10f;
-        spectrogram_matrix[spectrogram_write_index][m] = 10.0f * log10f(energy_sum);
-      }
-      
-      spectrogram_write_index = (spectrogram_write_index + 1) % TIME_FRAMES;
-      frames_since_last_inference++;
+          signal_t signal;
+          signal.total_length = EI_CLASSIFIER_RAW_SAMPLE_COUNT;
+          signal.get_data = &microphone_audio_signal_get_data;
 
-      // FIX #3: Throttle AI to run every ~330ms (33 frames). 
-      // Prevents I2S drops and gives the AI a clean window to look at!
-      if (frames_since_last_inference >= 33) {
-          frames_since_last_inference = 0;
-
-          float max_db = -999.0f;
-          for (int t = 0; t < TIME_FRAMES; ++t) {
-            for (int m = 0; m < N_MELS; ++m) {
-              if (spectrogram_matrix[t][m] > max_db) max_db = spectrogram_matrix[t][m];
-            }
+          ei_impulse_result_t result = { 0 };
+          EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
+          if (err != EI_IMPULSE_OK) {
+              Serial.printf("ERR: run_classifier failed (%d)\n", err);
+              continue;
           }
-          
-          int8_t* tensor_input_ptr = input->data.int8;
-          float input_scale = input->params.scale;
-          int input_zero_point = input->params.zero_point;
-          
-          int read_cursor = spectrogram_write_index;
-          for (int t = 0; t < TIME_FRAMES; ++t) {
-            for (int m = 0; m < N_MELS; ++m) {
-              float db_normalized = spectrogram_matrix[read_cursor][m] - max_db;
-              if (db_normalized < -80.0f) db_normalized = -80.0f;
 
-              int quantized_val = (int)roundf(db_normalized / input_scale) + input_zero_point;
-              if (quantized_val > 127)  quantized_val = 127;
-              if (quantized_val < -128) quantized_val = -128;
-              
-              tensor_input_ptr[m * TIME_FRAMES + t] = (int8_t)quantized_val;
-            }
-            read_cursor = (read_cursor + 1) % TIME_FRAMES;
+          float wake_word_score = 0.0f;
+          float cmd_sleep_score = 0.0f;
+          float cmd_guard_score = 0.0f;
+          float unknown_score = 0.0f;
+
+          for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+              if (strstr(result.classification[ix].label, "wake") != NULL) wake_word_score = result.classification[ix].value;
+              else if (strstr(result.classification[ix].label, "sleep") != NULL) cmd_sleep_score = result.classification[ix].value;
+              else if (strstr(result.classification[ix].label, "guard") != NULL) cmd_guard_score = result.classification[ix].value;
+              else if (strstr(result.classification[ix].label, "unknown") != NULL) unknown_score = result.classification[ix].value;
           }
-          
-          if (interpreter->Invoke() == kTfLiteOk && !DEBUG_AUDIO_WAVE) {
-            int8_t negative_score = output->data.int8[0];
-            int8_t positive_score = output->data.int8[1];
-            
-            // Print thoughts exactly as they happen (every 330ms)
-            Serial.printf("AI THOUGHTS -> Pos: %d | Neg: %d\n", positive_score, negative_score);
 
-            // Trigger if positive score beats negative score
-            if (positive_score > negative_score && positive_score > 30) { 
-              keywordDetected = true;
-              Serial.printf("🎯 KEYWORD MATCH FOUND! Score: %d\n", positive_score);
-
-              // Clear matrix so it doesn't double-trigger on the exact same word
-              for(int t=0; t<TIME_FRAMES; t++) {
-                  for(int m=0; m<N_MELS; m++) spectrogram_matrix[t][m] = -80.0f;
+          if (max_amplitude > 800) {
+              if (!DEBUG_AUDIO_WAVE) {
+                  Serial.println("\n--- RAW AI DIAGNOSTICS ---");
+                  Serial.printf("🔊 Peak Volume: %d\n", max_amplitude);
+                  for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+                      Serial.printf("  -> Label '%s': %5.1f%%\n", result.classification[ix].label, result.classification[ix].value * 100);
+                  }
               }
-            }
+
+              if (wake_word_score >= 0.60f && wake_word_score > unknown_score) {
+                  keyword_wake_word = true;
+                  Serial.println("🎯 ACTION: WAKE WORD TRIGGERED!");
+                  samples_since_last_inference = -(EI_CLASSIFIER_RAW_SAMPLE_COUNT); // Add dead-time
+              } else if (cmd_sleep_score >= 0.60f && cmd_sleep_score > unknown_score) {
+                  keyword_cmd_sleep = true;
+                  Serial.println("💤 ACTION: SLEEP COMMAND TRIGGERED!");
+                  samples_since_last_inference = -(EI_CLASSIFIER_RAW_SAMPLE_COUNT);
+              } else if (cmd_guard_score >= 0.60f && cmd_guard_score > unknown_score) {
+                  keyword_cmd_guard = true;
+                  Serial.println("🛡️ ACTION: GUARD COMMAND TRIGGERED!");
+                  samples_since_last_inference = -(EI_CLASSIFIER_RAW_SAMPLE_COUNT);
+              } else {
+                  if (!DEBUG_AUDIO_WAVE) Serial.println("❌ ACTION: Ignored (Did not cross 60% confidence)");
+              }
+              if (!DEBUG_AUDIO_WAVE) Serial.println("--------------------------");
           }
+          max_amplitude = 0;
       }
-    }
-    vTaskDelay(pdMS_TO_TICKS(1));
+      vTaskDelay(pdMS_TO_TICKS(10));
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); 
+  delay(3000); 
 
   Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); 
 
@@ -315,7 +231,8 @@ void setup() {
   i2s_set_pin(I2S_PORT, &pin_config);
   i2s_start(I2S_PORT);
 
-  xTaskCreatePinnedToCore(audioInferenceTask, "AudioAI", 16384, NULL, 5, &audioTaskHandle, 0);
+  xTaskCreatePinnedToCore(i2sReadTask, "I2SRead", 4096, NULL, 5, &i2sTaskHandle, 0);
+  xTaskCreatePinnedToCore(audioInferenceTask, "AudioAI", 16384, NULL, 4, &audioTaskHandle, 0);
   
   lastInteractionTime = millis();
 }
@@ -382,21 +299,34 @@ void loop() {
       tapCount = 0;
   }
 
-  if (keywordDetected) {
-      lastInteractionTime = millis(); 
-      keywordDetected = false; 
+  if (keyword_wake_word || keyword_cmd_sleep || keyword_cmd_guard) {
+      lastInteractionTime = millis();
       
-      if (isSleeping) {
-          eyes.setEmotion(WAKEUP);
+      if (keyword_cmd_sleep) {
+          eyes.setEmotion(ASLEEP);
           emotionOverrideTimer = millis();
-          hasEmotionOverride  = true;
-      } else if (curEmotion != ANGRY && curEmotion != DIZZY && !innocentOverride) {
-          eyes.setEmotion(INNOCENT); 
+          hasEmotionOverride = true;
+      } else if (keyword_cmd_guard) {
+          eyes.setEmotion(ANGRY);
           emotionOverrideTimer = millis();
-          hasEmotionOverride   = true;
-          innocentOverride     = true;
-          innocentReleaseTime  = 0;
+          hasEmotionOverride = true;
+      } else if (keyword_wake_word) {
+          if (isSleeping) {
+              eyes.setEmotion(WAKEUP);
+              emotionOverrideTimer = millis();
+              hasEmotionOverride  = true;
+          } else if (curEmotion != ANGRY && curEmotion != DIZZY && !innocentOverride) {
+              eyes.setEmotion(INNOCENT); 
+              emotionOverrideTimer = millis();
+              hasEmotionOverride   = true;
+              innocentOverride     = true;
+              innocentReleaseTime  = 0;
+          }
       }
+
+      keyword_wake_word = false;
+      keyword_cmd_sleep = false;
+      keyword_cmd_guard = false;
   }
 
   if (isTouched) {

@@ -1,0 +1,26 @@
+{
+  "name": "Edge Impulse KWS",
+  "version": "1.0.0",
+  "build": {
+    "flags": [
+      "-I edge-impulse-sdk",
+      "-I model-parameters",
+      "-I tflite-model",
+      "-O3",
+      "-Wno-unused-function",
+      "-Wno-missing-field-initializers",
+      "-Wno-error=maybe-uninitialized",
+      "-Wno-maybe-uninitialized"
+    ],
+    "srcFilter": [
+      "+<edge-impulse-sdk/classifier/>",
+      "+<edge-impulse-sdk/dsp/>",
+      "+<edge-impulse-sdk/tensorflow/>",
+      "+<edge-impulse-sdk/CMSIS/>",
+      "+<edge-impulse-sdk/porting/espressif/>",
+      "+<tflite-model/>",
+      "+<model-parameters/>"
+    ],
+    "archive": false
+  }
+}
