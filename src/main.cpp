@@ -10,6 +10,7 @@
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 
 #include "RobotEyes.h"
+#include "BleManager.h"
 
 // =========================================================================
 // 🛑 DEBUG CONTROL SWITCH
@@ -240,10 +241,45 @@ void setup() {
   xTaskCreatePinnedToCore(i2sReadTask, "I2SRead", 4096, NULL, 5, &i2sTaskHandle, 0);
   xTaskCreatePinnedToCore(audioInferenceTask, "AudioAI", 16384, NULL, 4, &audioTaskHandle, 0);
   
+  // Initialize BLE Server for Provisioning
+  BleManager::init();
+  
   lastInteractionTime = millis();
 }
 
 void loop() {
+  // Check if we received new Wi-Fi credentials via BLE
+  if (BleManager::hasNewCredentials()) {
+      Serial.println("Attempting Wi-Fi Connection...");
+      
+      // CRITICAL: Shut down BLE completely before attempting Wi-Fi.
+      // The ESP32 shares a single antenna. Having BLE active during Wi-Fi scan often causes NO_AP_FOUND.
+      BleManager::stop();
+      delay(500); // Give the radio time to switch modes
+
+      WiFi.mode(WIFI_STA); // Explicitly set station mode
+      WiFi.disconnect();   // Clear any old connections
+      delay(100);
+
+      WiFi.begin(BleManager::getSsid().c_str(), BleManager::getPassword().c_str());
+      
+      int attempts = 0;
+      while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+          delay(500);
+          Serial.print(".");
+          attempts++;
+      }
+      
+      if (WiFi.status() == WL_CONNECTED) {
+          Serial.println("\nWi-Fi Connected successfully!");
+          Serial.print("IP Address: ");
+          Serial.println(WiFi.localIP());
+      } else {
+          Serial.println("\nFailed to connect to Wi-Fi. Please restart the robot to turn BLE back on and try again.");
+      }
+      BleManager::clearCredentials();
+  }
+
   bool cameraDetected = processCameraData();
   
   sensors_event_t a, g, temp;
