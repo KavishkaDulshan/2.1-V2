@@ -1,4 +1,6 @@
 #include "RobotEyes.h"
+#include <math.h>
+#include "WarningAnimation.h"
 
 void RobotEyes::init()
 {
@@ -74,9 +76,22 @@ void RobotEyes::setEmotion(Emotion e)
   else if (e == GUARDING)
   {
     guardScanAngle = 0.0f;
+    guardPupilPulseAngle = 0.0f;
     targetX = 0;
     targetY = 0;
     easeFactor = 0.1f; // Slow, deliberate panning
+  }
+  else if (e == PANIC)
+  {
+    panicAngle = 0.0f;
+    easeFactor = 0.4f; // Extremely fast frantic movement
+  }
+  else if (e == WARNING_ANIM)
+  {
+    warningFrame = 0;
+    lastWarningFrameTime = millis();
+    targetX = 0;
+    targetY = 0;
   }
   else
   {
@@ -131,6 +146,27 @@ void RobotEyes::update()
     return;
   }
 
+  // --- NEW: PANIC ANIMATION ---
+  if (currentEmotion == PANIC)
+  {
+    panicAngle += 1.2f; // Very fast shaking
+    targetX = sin(panicAngle) * 6.0f;
+    targetY = cos(panicAngle * 1.5f) * 6.0f;
+    blinkState = 0.1f + (sin(panicAngle * 0.5f) * 0.1f); // Rapid fluttering
+    return;
+  }
+
+  // --- NEW: WARNING ANIMATION ---
+  if (currentEmotion == WARNING_ANIM)
+  {
+    if (now - lastWarningFrameTime > WARNING_FRAME_DELAY)
+    {
+      warningFrame = (warningFrame + 1) % WARNING_FRAME_COUNT;
+      lastWarningFrameTime = now;
+    }
+    return;
+  }
+
   // --- NEW: WAKEUP ANIMATION ---
   if (currentEmotion == WAKEUP)
   {
@@ -146,14 +182,12 @@ void RobotEyes::update()
   // --- NEW: GUARDING ANIMATION ---
   if (currentEmotion == GUARDING)
   {
+    guardPupilPulseAngle += 0.05f; // Pupils slowly dilate and contract
     if (now - lastLookAtTime > 2000) {
         // No camera movement detected recently -> slowly pan left and right
         guardScanAngle += 0.03f; 
         targetX = sin(guardScanAngle) * 12.0f;
         targetY = 0;
-    } else {
-        // Camera tracked movement -> keep targetX and targetY from lookAt()
-        // so the eyes instantly track the intruder!
     }
     blinkState = 0.0f;
     return;
@@ -349,6 +383,20 @@ void RobotEyes::draw(LGFX_Sprite *spr)
 {
   spr->fillScreen(TFT_BLACK);
 
+  if (currentEmotion == WARNING_ANIM) {
+      // Draw 64x64 bitmap in center bottom-ish
+      spr->drawBitmap(0, 0, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, TFT_WHITE);
+      
+      // Draw typography: "Do not touch anything!"
+      spr->setTextColor(TFT_WHITE, TFT_BLACK);
+      spr->setTextSize(1);
+      spr->setTextDatum(textdatum_t::middle_left);
+      spr->drawString("DO NOT", 70, 16);
+      spr->drawString("TOUCH", 70, 32);
+      spr->drawString("ANYTHING!", 70, 48);
+      return;
+  }
+
   // APPLY MPU6050 EYE OFFSET HERE
   int centerX = 64 + (int)eyeOffsetX;
   int centerY = 32 + (int)eyeOffsetY;
@@ -477,46 +525,33 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     return;
   }
 
-  // GUARDING (Fierce "Eagle Eyes" Scanner)
+  // GUARDING (Cute "Cat Ready to Pounce")
   if (currentEmotion == GUARDING)
   {
     float effectiveBlink = max(blinkState, transitionBlink);
-    int h = max(2, (int)(eyeH * (1.0f - effectiveBlink)));
+    int guardH = (int)(eyeH * 0.85f); // Eyelids lowered slightly in focus
+    int h = max(2, (int)(guardH * (1.0f - effectiveBlink)));
     
-    // Draw the sharp eagle-eye sclera
-    // A large triangle sloping downwards towards the center creates an aggressive brow
-    int innerY = y - h / 2 + 12; // Slope down towards center
-    int outerY = y - h / 2 - 4;  // Lifted up at the edges
-    
-    if (side == -1) {
-        // Left eye
-        spr->fillTriangle(x - eyeW / 2, outerY, x + eyeW / 2, innerY, x - eyeW / 2, y + h / 2, TFT_WHITE);
-        spr->fillTriangle(x + eyeW / 2, innerY, x + eyeW / 2, y + h / 2, x - eyeW / 2, y + h / 2, TFT_WHITE);
-    } else {
-        // Right eye
-        spr->fillTriangle(x + eyeW / 2, outerY, x - eyeW / 2, innerY, x + eyeW / 2, y + h / 2, TFT_WHITE);
-        spr->fillTriangle(x - eyeW / 2, innerY, x - eyeW / 2, y + h / 2, x + eyeW / 2, y + h / 2, TFT_WHITE);
-    }
+    // Smooth rounded eyes, but slightly squinted
+    spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, TFT_WHITE);
 
     if (h > 6)
     {
       int pX = x + curX;
-      int pY = constrain(y + (int)curY, y - h / 4, y + h / 2 - pupilR - 2);
+      int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
 
-      // Intense glowing pupil (red/orange if we had color, but white/black on monochrome)
-      // Large dark pupil with a striking piercing catchlight
-      int effR = 8;
+      // Pupils slowly dilate and contract (pulsating focus)
+      int effR = 7 + (int)(sin(guardPupilPulseAngle) * 3); 
       spr->fillCircle(pX, pY, effR, TFT_BLACK);
       
-      // Piercing crosshair-style catchlight
-      spr->drawLine(pX - 2, pY, pX + 2, pY, TFT_WHITE);
-      spr->drawLine(pX, pY - 2, pX, pY + 2, TFT_WHITE);
-      spr->fillCircle(pX, pY, 1, TFT_WHITE); // Glowing center
+      // Standard catchlights
+      spr->fillCircle(pX - 3, pY - 3, 2, TFT_WHITE);
+      spr->fillCircle(pX + 3, pY + 2, 1, TFT_WHITE);
     }
     return;
   }
 
-  // STANDARD RENDERING (Neutral, Angry, Sad, Dizzy, Wakeup)
+  // STANDARD RENDERING (Neutral, Angry, Sad, Dizzy, Wakeup, Panic)
   float effectiveBlink = max(blinkState, transitionBlink);
   int h = max(2, (int)(eyeH * (1.0f - effectiveBlink)));
   spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, TFT_WHITE);
@@ -526,12 +561,13 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     int pX = x + curX;
     int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
 
-    // Dizzy pupil shrinks and expands slightly
     int effR = pupilR;
     if (currentEmotion == ANGRY)
       effR = pupilR - 3;
     if (currentEmotion == DIZZY)
       effR = pupilR - 2 + (int)(sin(dizzyAngle) * 2);
+    if (currentEmotion == PANIC)
+      effR = 4; // Tiny terrified pupils
 
     spr->fillCircle(pX, pY, effR, TFT_BLACK);
     spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);

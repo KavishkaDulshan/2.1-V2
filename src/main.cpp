@@ -65,6 +65,7 @@ LGFX_Sprite sprite(&display);
 volatile bool keyword_wake_word = false;
 volatile bool keyword_cmd_sleep = false;
 volatile bool keyword_cmd_guard = false;
+volatile bool keyword_loud_noise = false;
 unsigned long lastInteractionTime = 0;
 unsigned long emotionOverrideTimer = 0;
 bool hasEmotionOverride = false;
@@ -167,6 +168,10 @@ void audioInferenceTask(void *pvParameters) {
               } else if (cmd_guard_score >= 0.60f && cmd_guard_score > unknown_score) {
                   keyword_cmd_guard = true;
                   Serial.println("🛡️ ACTION: GUARD COMMAND TRIGGERED!");
+                  samples_since_last_inference = -(EI_CLASSIFIER_RAW_SAMPLE_COUNT);
+              } else if (max_amplitude > 30000) {
+                  keyword_loud_noise = true;
+                  Serial.println("💥 ACTION: LOUD NOISE DETECTED!");
                   samples_since_last_inference = -(EI_CLASSIFIER_RAW_SAMPLE_COUNT);
               } else {
                   if (!DEBUG_AUDIO_WAVE) Serial.println("❌ ACTION: Ignored (Did not cross 60% confidence)");
@@ -300,10 +305,16 @@ void loop() {
       tapCount = 0;
   }
 
-  if (keyword_wake_word || keyword_cmd_sleep || keyword_cmd_guard) {
+  if (keyword_wake_word || keyword_cmd_sleep || keyword_cmd_guard || keyword_loud_noise) {
       lastInteractionTime = millis();
       
-      if (keyword_cmd_sleep) {
+      if (keyword_loud_noise) {
+          if (guardMode) {
+              eyes.setEmotion(PANIC);
+              emotionOverrideTimer = millis();
+              hasEmotionOverride = true;
+          }
+      } else if (keyword_cmd_sleep) {
           if (!guardMode) { // Ignore sleep command if guarding
               // Trick the idle timer into thinking 10 seconds have passed so it plays SLEEPY naturally
               lastInteractionTime = millis() - 10001;
@@ -331,13 +342,14 @@ void loop() {
       keyword_wake_word = false;
       keyword_cmd_sleep = false;
       keyword_cmd_guard = false;
+      keyword_loud_noise = false;
   }
 
   if (isTouched) {
       lastInteractionTime = millis();
       if (guardMode) {
-          // Intruder detected! Do NOT drop guardMode, just trigger angry alarm
-          eyes.setEmotion(ANGRY);
+          // Warning reaction in Guard mode
+          eyes.setEmotion(WARNING_ANIM);
           emotionOverrideTimer = millis();
           hasEmotionOverride = true;
       } else if (isSleeping) {
@@ -377,7 +389,7 @@ void loop() {
   if (physicallyMoved) {
       lastInteractionTime = millis();
       if (guardMode) {
-          // Intruder detected! Do NOT drop guardMode
+          // Physical disturbance in Guard mode triggers Angry warning
           eyes.setEmotion(ANGRY);
           emotionOverrideTimer = millis();
           hasEmotionOverride = true;
@@ -403,11 +415,17 @@ void loop() {
       }
   }
 
-  if (hasEmotionOverride && !isTouched && !innocentOverride && !guardMode && (millis() - emotionOverrideTimer > 3000)) {
-      eyes.setEmotion(NEUTRAL);
+  // 3-second emotion override timeout (e.g., recovering from Startled/Angry)
+  if (hasEmotionOverride && !isTouched && !innocentOverride && (millis() - emotionOverrideTimer > 3000)) {
+      if (guardMode) {
+          eyes.setEmotion(GUARDING); // Return to Guarding!
+      } else {
+          eyes.setEmotion(NEUTRAL);
+      }
       hasEmotionOverride = false;
   }
 
+  // Idle fallback logic (only if not guarding and no overrides)
   if (!hasEmotionOverride && !isTouched && !innocentOverride && !guardMode) {
       unsigned long idleTime = millis() - lastInteractionTime;
       if      (idleTime > 20000 && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(ASLEEP);
