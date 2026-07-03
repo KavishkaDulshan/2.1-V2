@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'models/ble_state.dart';
+import 'models/mqtt_state.dart';
 import 'screens/scan_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -18,6 +19,7 @@ void main() async {
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => BleState()),
+        ChangeNotifierProvider(create: (_) => MqttState()),
       ],
       child: const MyApp(),
     ),

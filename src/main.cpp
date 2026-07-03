@@ -11,6 +11,7 @@
 
 #include "RobotEyes.h"
 #include "BleManager.h"
+#include "MqttManager.h"
 
 // =========================================================================
 // 🛑 DEBUG CONTROL SWITCH
@@ -244,6 +245,9 @@ void setup() {
   // Initialize BLE Server for Provisioning
   BleManager::init();
   
+  // Initialize MQTT Manager
+  MqttManager::init(&eyes);
+  
   lastInteractionTime = millis();
 }
 
@@ -279,6 +283,9 @@ void loop() {
       }
       BleManager::clearCredentials();
   }
+  
+  // Process MQTT Messages
+  MqttManager::loop();
 
   bool cameraDetected = processCameraData();
   
