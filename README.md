@@ -135,4 +135,4 @@ ESP-SR requires working Octal PSRAM at the hardware level.
   }
   ```
 
-Kavishka Dulshan
+Kavishka Dulshan...
