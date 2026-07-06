@@ -81,6 +81,8 @@ private:
   float innocentPulseAngle = 0.0;
   float dizzyAngle = 0.0;
   float dizzyTrailAngle[3] = {0, 0, 0}; // spiral trail
+  float dizzyBackgroundAngle = 0.0;
+  float dizzyOrbitAngle = 0.0;
 
   // Background Stars/Fireworks (Innocent)
   static const int MAX_STARS = 6;

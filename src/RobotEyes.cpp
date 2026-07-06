@@ -2,6 +2,23 @@
 #include <math.h>
 #include "WarningAnimation.h"
 
+static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t color) {
+  int innerRadius = radius / 2;
+  int points[10][2];
+  for (int i = 0; i < 10; i++) {
+    float angle = i * (PI / 5.0f) - (PI / 2.0f);
+    int r = (i % 2 == 0) ? radius : innerRadius;
+    points[i][0] = x + (int)(cos(angle) * r);
+    points[i][1] = y + (int)(sin(angle) * r);
+  }
+  for (int i = 0; i < 10; i++) {
+    int next = (i + 1) % 10;
+    spr->drawLine(points[i][0], points[i][1], points[next][0], points[next][1], color);
+    // Fill the star roughly by drawing lines to the center
+    spr->fillTriangle(x, y, points[i][0], points[i][1], points[next][0], points[next][1], color);
+  }
+}
+
 void RobotEyes::init()
 {
   randomSeed(esp_random());
@@ -177,6 +194,8 @@ void RobotEyes::update()
     dizzyTrailAngle[1] = dizzyTrailAngle[0];
     dizzyTrailAngle[0] = dizzyAngle;
     dizzyAngle += 0.4f;
+    dizzyBackgroundAngle += 0.05f;
+    dizzyOrbitAngle -= 0.1f;
     targetX = sin(dizzyAngle) * 10.0f;
     targetY = cos(dizzyAngle) * 10.0f;
     blinkState = 0.2f + (sin(dizzyAngle * 0.5f) * 0.1f);
@@ -468,7 +487,7 @@ void RobotEyes::update()
       firework.alpha -= 0.04f;
       if (firework.alpha <= 0) {
         firework.active = false;
-        fireworkTimer = now + random(3000, 7000);
+        fireworkTimer = now + random(800, 2000); // More frequent pops
       }
     }
   }
@@ -584,7 +603,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
 
   // Background particles for HAPPY (Hearts)
   if (currentEmotion == HAPPY) {
-    uint16_t pinkColor = 0xF638; // RGB 244, 194, 194
+    uint16_t pinkColor = 0xF80F; // Bright pink #FF007F
     for (int i = 0; i < MAX_HEARTS; i++) {
       if (hearts[i].active) {
         int hX = (int)hearts[i].x;
@@ -598,6 +617,44 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
   }
 
+  // Background particles for DIZZY (Spirals & Stars)
+  if (currentEmotion == DIZZY) {
+    uint16_t spiralColor = 0x18E3; // dim cyan/blue for spiral
+    uint16_t dizzStarColor = 0xFFE0; // yellow stars
+    
+    // Background spirals (3 sweeping arcs)
+    for (int i = 0; i < 3; i++) {
+      float a = dizzyBackgroundAngle + (i * TWO_PI / 3.0f);
+      int sx = centerX + (int)(cos(a) * 80.0f);
+      int sy = centerY + (int)(sin(a) * 80.0f);
+      spr->drawLine(centerX, centerY, sx, sy, spiralColor); // simple sweep representation
+    }
+
+    // Orbiting rings and stars around the head/eyes
+    int orbitRx = 70;
+    int orbitRy = 20; // flattened ellipse to look 3D
+    // Draw the ring path as dotted curve
+    for (float a = 0; a < TWO_PI; a += 0.4f) {
+      int rx = centerX + (int)(cos(a) * orbitRx);
+      int ry = centerY - 30 + (int)(sin(a) * orbitRy);
+      spr->drawPixel(rx, ry, spiralColor);
+    }
+    
+    // Draw two orbiting stars on the ring
+    for (int i = 0; i < 2; i++) {
+      float sa = dizzyOrbitAngle + (i * PI);
+      int stx = centerX + (int)(cos(sa) * orbitRx);
+      int sty = centerY - 30 + (int)(sin(sa) * orbitRy);
+      // Bring stars to front if they are on the bottom half of the orbit (sin > 0)
+      if (sin(sa) > 0) { 
+        drawRealStar(spr, stx, sty, 5, dizzStarColor);
+      } else {
+        // Draw dim star if it's behind the eyes
+        drawRealStar(spr, stx, sty, 3, 0xCE59); // darker yellow
+      }
+    }
+  }
+
   // Background particles for INNOCENT (Stars & Fireworks)
   if (currentEmotion == INNOCENT) {
     uint16_t yellowColor = 0xFFE0; // TFT_YELLOW
@@ -605,8 +662,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       if (stars[i].active) {
         int sX = (int)stars[i].x;
         int sY = (int)stars[i].y;
-        spr->drawLine(sX - 3, sY, sX + 3, sY, yellowColor);
-        spr->drawLine(sX, sY - 3, sX, sY + 3, yellowColor);
+        drawRealStar(spr, sX, sY, 4, yellowColor);
       }
     }
     if (firework.active && firework.alpha > 0) {
@@ -741,12 +797,12 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
 
     if (iHe > 14 && eb < 0.6f)
     {
-      int pR = 14; // even larger pupil for the larger eye
+      int pR = 22; // Much larger pupil for innocent
       int pX = x + (int)curX;
       int pY = constrain(y + (int)curY, y - iHe / 2 + pR + 2, y + iHe / 2 - pR - 2);
       spr->fillCircle(pX, pY, pR, TFT_BLACK);
-      spr->fillCircle(pX - 4, pY - 5, 4, TFT_WHITE);
-      spr->fillCircle(pX + 4, pY + 3, 2, TFT_WHITE);
+      spr->fillCircle(pX - 6, pY - 7, 5, TFT_WHITE); // Larger highlight
+      spr->fillCircle(pX + 6, pY + 4, 3, TFT_WHITE);
     }
     return;
   }
