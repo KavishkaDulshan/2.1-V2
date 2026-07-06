@@ -103,6 +103,7 @@ private:
 
   // Guard & Panic Physics
   float guardScanAngle = 0.0f;
+  float guardSirenAngle = 0.0f;
   unsigned long lastLookAtTime = 0;
   float guardPupilPulseAngle = 0.0f;
   float panicAngle = 0.0f;

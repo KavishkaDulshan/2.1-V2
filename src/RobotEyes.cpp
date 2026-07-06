@@ -122,9 +122,10 @@ void RobotEyes::setEmotion(Emotion e)
   else if (e == GUARDING)
   {
     guardScanAngle = 0.0f;
+    guardSirenAngle = 0.0f;
     guardPupilPulseAngle = 0.0f;
     targetX = 0;
-    targetY = 0;
+    targetY = 15.0f; // lower the eyes
     easeFactor = 0.1f;
   }
   else if (e == PANIC)
@@ -260,10 +261,15 @@ void RobotEyes::update()
   if (currentEmotion == GUARDING)
   {
     guardPupilPulseAngle += 0.05f;
+    
+    // Spin the siren
+    guardSirenAngle += 6.0f; // 6 degrees per frame
+    if (guardSirenAngle >= 360.0f) guardSirenAngle -= 360.0f;
+    
     if (now - lastLookAtTime > 2000) {
       guardScanAngle += 0.03f;
       targetX = sin(guardScanAngle) * 12.0f;
-      targetY = 0;
+      targetY = 15.0f; // keep eyes lowered
     }
     blinkState = 0.0f;
     return;
@@ -763,6 +769,40 @@ void RobotEyes::draw(LGFX_Sprite *spr)
 
   // GUARDING: asymmetric eye sizes for peeking feel
   if (currentEmotion == GUARDING) {
+    // Draw Siren in 3D side-view perspective
+    int bx = 80;
+    int by = 8;
+    float rA = guardSirenAngle * PI / 180.0f;
+    float bA = (guardSirenAngle + 180.0f) * PI / 180.0f;
+    
+    float rdx = cos(rA), rdz = sin(rA);
+    float bdx = cos(bA), bdz = sin(bA);
+    
+    // 1. Draw sideways beams (Background)
+    int rL = (int)(25.0f * rdx);
+    int rW = (int)(8.0f * fabs(rdx));
+    if (abs(rL) > 2) spr->fillTriangle(bx, by, bx + rL, by - rW, bx + rL, by + rW, 0xA000); // Red beam
+    
+    int bL = (int)(25.0f * bdx);
+    int bW = (int)(8.0f * fabs(bdx));
+    if (abs(bL) > 2) spr->fillTriangle(bx, by, bx + bL, by - bW, bx + bL, by + bW, 0x0015); // Blue beam
+    
+    // 2. Draw Dome and Base
+    spr->fillRoundRect(70, -2, 20, 18, 6, 0xCE79); // Light silver dome
+    spr->fillRect(62, 0, 36, 4, 0x4208); // Dark grey base at top edge
+    
+    // 3. Draw Lens Flares (Foreground) - grows when pointing forward
+    if (rdz > 0) {
+        int fx = bx + (int)(8.0f * rdx);
+        int fSize = (int)(rdz * 9.0f);
+        if (fSize > 0) spr->fillCircle(fx, by, fSize, TFT_RED);
+    }
+    if (bdz > 0) {
+        int fx = bx + (int)(8.0f * bdx);
+        int fSize = (int)(bdz * 9.0f);
+        if (fSize > 0) spr->fillCircle(fx, by, fSize, TFT_BLUE);
+    }
+
     // Determine which way pupils are panning
     float panDir = curX; // positive = looking right
     // Eye that is "looking towards" gets bigger (the leading eye)
