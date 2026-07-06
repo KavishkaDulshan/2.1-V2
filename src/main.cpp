@@ -70,7 +70,7 @@ public:
       cfg.panel_height     = 160;
       cfg.offset_x         = 0;
       cfg.offset_y         = 0;
-      cfg.offset_rotation  = 1; // Landscape (1 or 3 depending on cable orientation)
+      cfg.offset_rotation  = 0; // Removed offset, use display.setRotation() instead
       cfg.dummy_read_pixel = 8;
       cfg.dummy_read_bits  = 1;
       cfg.readable         = false;
@@ -221,7 +221,7 @@ void setup() {
 
   display.init(); 
   display.setBrightness(128); 
-  display.setRotation(2);
+  display.setRotation(1); // KEEP THIS AT 1 (Hardware is happy here)
   sprite.setColorDepth(16); 
   sprite.createSprite(160, 128);
   eyes.init();
@@ -542,7 +542,10 @@ void loop() {
 
   eyes.update();
   eyes.draw(&sprite);
-  sprite.pushSprite(0, 0);
+  
+  // SOFTWARE ROTATION (180 degrees)
+  sprite.setPivot(80, 64); // Center of 160x128 sprite
+  sprite.pushRotateZoom(&display, 80, 64, 180, 1.0, 1.0);
 }
 
 bool processCameraData() {
