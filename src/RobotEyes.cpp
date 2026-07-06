@@ -5,27 +5,16 @@
 void RobotEyes::init()
 {
   randomSeed(esp_random());
+  for (int i = 0; i < 3; i++) dizzyTrailAngle[i] = 0;
+  for (int i = 0; i < MAX_HEARTS; i++) hearts[i].active = false;
+  for (int i = 0; i < MAX_STARS; i++) stars[i].active = false;
+  firework.active = false;
 }
 
 uint16_t RobotEyes::getEmotionColor(Emotion e)
 {
-  switch (e)
-  {
-    case HAPPY: return 0x07E0; // TFT_GREEN
-    case ANGRY: return 0xF800; // TFT_RED
-    case SAD: return 0x001F; // TFT_BLUE
-    case DIZZY: return 0x780F; // TFT_PURPLE
-    case WARNING_ANIM: return 0xFDA0; // TFT_ORANGE
-    case SLEEPY: return 0x7BEF; // DARKGREYish
-    case ASLEEP: return 0x39E7; // DARKER GREY
-    case INNOCENT: return 0x07FF; // TFT_CYAN
-    case PANIC: return 0xFFE0; // TFT_YELLOW
-    case NEUTRAL:
-    case WAKEUP:
-    case GUARDING:
-    default:
-      return 0xFFFF; // TFT_WHITE
-  }
+  // All emotions use white sclera - emotion is conveyed purely through shape
+  return 0xFFFF; // TFT_WHITE
 }
 
 void RobotEyes::setEmotion(Emotion e)
@@ -33,8 +22,17 @@ void RobotEyes::setEmotion(Emotion e)
   currentEmotion = e;
   blinkState = 0;
   isBlinking = false;
-  transitionBlink = 0.45f; // Quick blink on every emotion switch
-  lastBlinkTime = millis(); // Prevent double-blink after transition
+  transitionBlink = 0.45f;
+  lastBlinkTime = millis();
+
+  // Reset emotion-specific state
+  sadTearActive = false;
+  sadTearTimer = millis();
+  sadLidAngle = 0;
+  angryTwitching = false;
+  angryTwitchOffset = 0;
+  panicSweatActive = false;
+  innocentFlicking = false;
 
   if (e == SLEEPY)
   {
@@ -51,7 +49,6 @@ void RobotEyes::setEmotion(Emotion e)
   }
   else if (e == ASLEEP)
   {
-    // Deep Sleep Mode - uses SLEEPY drawEye with lid at 0.92
     sleepBreathAngle = 0;
     sleepyLidHeight = 0.92f;
     sleepPhase = 0;
@@ -59,7 +56,7 @@ void RobotEyes::setEmotion(Emotion e)
     sleepTrembleAngle = 0;
     sleepMicroDriftX = 0;
     sleepMicroTargetX = 0;
-    blinkState = 0; // SLEEPY drawEye handles rendering
+    blinkState = 0;
     targetY = 20.0f;
     curY = 20.0f;
     easeFactor = 0.04f;
@@ -67,31 +64,38 @@ void RobotEyes::setEmotion(Emotion e)
   else if (e == HAPPY)
   {
     happyBounceAngle = 0;
-    happyShimmerAngle = 0;
+    happyEyeWidthPulse = 0;
     easeFactor = 0.2f;
+    for (int i = 0; i < MAX_HEARTS; i++) hearts[i].active = false;
   }
   else if (e == SAD)
   {
     targetX = 0;
     targetY = 8.0f;
     easeFactor = 0.08f;
+    sadLidAngle = 0;
+    sadTearTimer = millis() + random(2000, 5000);
   }
   else if (e == INNOCENT)
   {
     targetX = 0;
     targetY = -5.0f;
     easeFactor = 0.15f;
+    innocentFlickTimer = millis() + random(3000, 7000);
+    for (int i = 0; i < MAX_STARS; i++) stars[i].active = false;
+    firework.active = false;
   }
   else if (e == DIZZY)
   {
     dizzyAngle = 0;
-    easeFactor = 0.3f; // Fast, erratic
+    for (int i = 0; i < 3; i++) dizzyTrailAngle[i] = 0;
+    easeFactor = 0.3f;
   }
   else if (e == WAKEUP)
   {
     targetX = 0;
     targetY = 0;
-    blinkState = 1.0f; // Start closed, will snap open in update
+    blinkState = 1.0f;
     easeFactor = 0.3f;
   }
   else if (e == GUARDING)
@@ -100,12 +104,19 @@ void RobotEyes::setEmotion(Emotion e)
     guardPupilPulseAngle = 0.0f;
     targetX = 0;
     targetY = 0;
-    easeFactor = 0.1f; // Slow, deliberate panning
+    easeFactor = 0.1f;
   }
   else if (e == PANIC)
   {
     panicAngle = 0.0f;
-    easeFactor = 0.4f; // Extremely fast frantic movement
+    panicSweatTimer = millis() + random(500, 1500);
+    easeFactor = 0.4f;
+  }
+  else if (e == ANGRY)
+  {
+    angryTwitchAngle = 0;
+    angryTwitchTimer = millis() + random(800, 2000);
+    easeFactor = 0.2f;
   }
   else if (e == WARNING_ANIM)
   {
@@ -114,17 +125,21 @@ void RobotEyes::setEmotion(Emotion e)
     targetX = 0;
     targetY = 0;
   }
-  else
+  else // NEUTRAL
   {
     targetX = 0;
     targetY = 0;
     easeFactor = 0.2f;
+    idleGazeTimer = millis() + random(1000, 3000);
+    idleDriftX = 0;
+    idleDriftY = 0;
+    idleTargetX = 0;
+    idleTargetY = 0;
   }
 }
 
 void RobotEyes::lookAt(float x, float y)
 {
-  // Only controls PUPIL
   targetX = constrain(x, -1.0, 1.0) * 14.0;
   targetY = constrain(y, -1.0, 1.0) * 10.0;
   lastLookAtTime = millis();
@@ -132,7 +147,6 @@ void RobotEyes::lookAt(float x, float y)
 
 void RobotEyes::setEyeOffset(float x, float y)
 {
-  // Controls WHOLE EYE (Sclera) bounds
   targetEyeOffsetX = constrain(x, -15.0, 15.0);
   targetEyeOffsetY = constrain(y, -15.0, 15.0);
 }
@@ -155,29 +169,44 @@ void RobotEyes::update()
 
   unsigned long now = millis();
 
-  // --- NEW: DIZZY ANIMATION ---
+  // --- DIZZY ANIMATION ---
   if (currentEmotion == DIZZY)
   {
+    // Store trail before advancing
+    dizzyTrailAngle[2] = dizzyTrailAngle[1];
+    dizzyTrailAngle[1] = dizzyTrailAngle[0];
+    dizzyTrailAngle[0] = dizzyAngle;
     dizzyAngle += 0.4f;
-    // Spin pupils in circles
     targetX = sin(dizzyAngle) * 10.0f;
     targetY = cos(dizzyAngle) * 10.0f;
-    // Wobble blink slightly
     blinkState = 0.2f + (sin(dizzyAngle * 0.5f) * 0.1f);
     return;
   }
 
-  // --- NEW: PANIC ANIMATION ---
+  // --- PANIC ANIMATION ---
   if (currentEmotion == PANIC)
   {
-    panicAngle += 1.2f; // Very fast shaking
+    panicAngle += 1.2f;
     targetX = sin(panicAngle) * 6.0f;
     targetY = cos(panicAngle * 1.5f) * 6.0f;
-    blinkState = 0.1f + (sin(panicAngle * 0.5f) * 0.1f); // Rapid fluttering
+    blinkState = 0.1f + (sin(panicAngle * 0.5f) * 0.1f);
+    // Sweat drop lifecycle
+    if (!panicSweatActive && now > panicSweatTimer) {
+      panicSweatActive = true;
+      panicSweatY = 0.0f;
+      panicSweatSide = (random(2) == 0) ? -1 : 1;
+    }
+    if (panicSweatActive) {
+      panicSweatY += 1.2f;
+      if (panicSweatY > 25) {
+        panicSweatActive = false;
+        panicSweatTimer = now + random(800, 2000);
+      }
+    }
     return;
   }
 
-  // --- NEW: WARNING ANIMATION ---
+  // --- WARNING ANIMATION ---
   if (currentEmotion == WARNING_ANIM)
   {
     if (now - lastWarningFrameTime > WARNING_FRAME_DELAY)
@@ -188,43 +217,42 @@ void RobotEyes::update()
     return;
   }
 
-  // --- NEW: WAKEUP ANIMATION ---
+  // --- WAKEUP ANIMATION ---
   if (currentEmotion == WAKEUP)
   {
     if (blinkState > 0.0f)
     {
-      blinkState -= 0.15f; // Snap open rapidly
+      blinkState -= 0.15f;
       if (blinkState <= 0)
         blinkState = 0;
     }
-    return; // Hold wide open
+    return;
   }
 
-  // --- NEW: GUARDING ANIMATION ---
+  // --- GUARDING ANIMATION ---
   if (currentEmotion == GUARDING)
   {
-    guardPupilPulseAngle += 0.05f; // Pupils slowly dilate and contract
+    guardPupilPulseAngle += 0.05f;
     if (now - lastLookAtTime > 2000) {
-        // No camera movement detected recently -> slowly pan left and right
-        guardScanAngle += 0.03f; 
-        targetX = sin(guardScanAngle) * 12.0f;
-        targetY = 0;
+      guardScanAngle += 0.03f;
+      targetX = sin(guardScanAngle) * 12.0f;
+      targetY = 0;
     }
     blinkState = 0.0f;
     return;
   }
 
-  // --- ASLEEP ANIMATION (Deep Sleep with REM phases) ---
+  // --- ASLEEP ANIMATION ---
   if (currentEmotion == ASLEEP)
   {
-    sleepBreathAngle += 0.010f; // Very slow, heavy breathing
+    sleepBreathAngle += 0.010f;
     sleepBreathY = sin(sleepBreathAngle) * 2.5f;
     sleepTrembleAngle += 0.08f;
     if (now - lastSleepCheck > 50)
     {
       switch (sleepPhase)
       {
-      case 0: // Deep sleep: lid barely stirs
+      case 0:
         sleepyLidHeight = 0.92f + sin(sleepTrembleAngle) * 0.012f;
         if (now - sleepPhaseTimer > (unsigned long)random(3000, 6000))
         {
@@ -232,7 +260,7 @@ void RobotEyes::update()
           sleepPhaseTimer = now;
         }
         break;
-      case 1: // REM: lid slowly drifts open (dreaming)
+      case 1:
         sleepyLidHeight -= 0.008f;
         if (sleepyLidHeight <= 0.60f)
         {
@@ -241,7 +269,7 @@ void RobotEyes::update()
           sleepPhaseTimer = now;
         }
         break;
-      case 2: // REM: flutter briefly
+      case 2:
         sleepyLidHeight = 0.60f + sin(sleepTrembleAngle * 1.5f) * 0.04f;
         if (now - sleepPhaseTimer > (unsigned long)random(400, 900))
         {
@@ -249,7 +277,7 @@ void RobotEyes::update()
           sleepPhaseTimer = now;
         }
         break;
-      case 3: // REM: close back to deep sleep
+      case 3:
         sleepyLidHeight += 0.010f;
         if (sleepyLidHeight >= 0.92f)
         {
@@ -261,7 +289,7 @@ void RobotEyes::update()
       }
       lastSleepCheck = now;
     }
-    blinkState = 0; // SLEEPY drawEye handles rendering via sleepyLidHeight
+    blinkState = 0;
     return;
   }
 
@@ -270,7 +298,7 @@ void RobotEyes::update()
   {
     happyBounceAngle += 0.15f;
     happyBounceY = sin(happyBounceAngle) * 3.0f;
-    happyShimmerAngle += 0.10f;
+    happyEyeWidthPulse = sin(happyBounceAngle * 0.5f) * 2.0f; // breathing swell
     if (!happyIsBlinking && (now - lastHappyBlinkTime > (unsigned long)happyBlinkInterval))
     {
       happyIsBlinking = true;
@@ -292,10 +320,31 @@ void RobotEyes::update()
       if (happyBlinkState < 0)
         happyBlinkState = 0;
     }
+
+    // Update Hearts
+    if (now > heartSpawnTimer) {
+      for (int i = 0; i < MAX_HEARTS; i++) {
+        if (!hearts[i].active) {
+          hearts[i].active = true;
+          hearts[i].x = random(20, 140);
+          hearts[i].y = 130 + random(0, 20); // spawn below screen
+          hearts[i].vy = -((float)random(10, 25) / 10.0f);
+          hearts[i].size = (float)random(3, 7);
+          break;
+        }
+      }
+      heartSpawnTimer = now + random(500, 1500);
+    }
+    for (int i = 0; i < MAX_HEARTS; i++) {
+      if (hearts[i].active) {
+        hearts[i].y += hearts[i].vy;
+        if (hearts[i].y < -20) hearts[i].active = false;
+      }
+    }
     return;
   }
 
-  // --- SLEEPY (Your existing awesome state machine) ---
+  // --- SLEEPY ---
   if (currentEmotion == SLEEPY)
   {
     sleepBreathAngle += 0.018f;
@@ -315,7 +364,6 @@ void RobotEyes::update()
       {
         sleepyLidHeight += 0.010f;
         targetY = sleepyLidHeight * 22.0f;
-        // Lazy micro-drift: pupils slowly wander while drooping
         if (now - lastMicroDrift > 300)
         {
           sleepMicroTargetX = (float)random(-5, 6);
@@ -370,12 +418,103 @@ void RobotEyes::update()
   if (currentEmotion == INNOCENT)
   {
     innocentPulseAngle += 0.025f;
-    // Pupils gaze upward and sway gently side to side – alive and curious
     targetY = -6.0f + sin(innocentPulseAngle * 0.4f) * 2.0f;
     targetX = sin(innocentPulseAngle * 0.3f) * 5.0f;
+    // Occasional attention flick
+    if (!innocentFlicking && now > innocentFlickTimer) {
+      innocentFlicking = true;
+      innocentFlickTarget = (random(2) == 0) ? 14.0f : -14.0f;
+    }
+    if (innocentFlicking) {
+      targetX = innocentFlickTarget;
+      if (fabs(curX - innocentFlickTarget) < 1.5f) {
+        innocentFlicking = false;
+        innocentFlickTimer = now + random(4000, 8000);
+        targetX = sin(innocentPulseAngle * 0.3f) * 5.0f; // return to sway
+      }
+    }
+
+    // Update Stars
+    if (now > starSpawnTimer) {
+      for (int i = 0; i < MAX_STARS; i++) {
+        if (!stars[i].active) {
+          stars[i].active = true;
+          stars[i].x = random(10, 150);
+          stars[i].y = 130 + random(0, 20);
+          stars[i].vy = -((float)random(15, 30) / 10.0f);
+          break;
+        }
+      }
+      starSpawnTimer = now + random(300, 1000);
+    }
+    for (int i = 0; i < MAX_STARS; i++) {
+      if (stars[i].active) {
+        stars[i].y += stars[i].vy;
+        if (stars[i].y < -20) stars[i].active = false;
+      }
+    }
+
+    // Update Firework
+    if (!firework.active && now > fireworkTimer) {
+      firework.active = true;
+      firework.x = random(30, 130);
+      firework.y = random(20, 100);
+      firework.radius = 0;
+      firework.maxRadius = random(15, 35);
+      firework.alpha = 1.0f;
+    }
+    if (firework.active) {
+      firework.radius += 1.5f;
+      firework.alpha -= 0.04f;
+      if (firework.alpha <= 0) {
+        firework.active = false;
+        fireworkTimer = now + random(3000, 7000);
+      }
+    }
   }
 
-  // Normal blink (INNOCENT uses slower, more deliberate blink speed)
+  // --- SAD ---
+  if (currentEmotion == SAD)
+  {
+    sadLidAngle += 0.02f;
+    // Teardrop lifecycle
+    if (!sadTearActive && now > sadTearTimer) {
+      sadTearActive = true;
+      sadTearX = (random(2) == 0) ? -eyeGap : eyeGap; // which eye
+      sadTearY = 64 + eyeH / 2 - 4;
+      sadTearVy = 0.5f;
+      sadTearW = 4;
+      sadTearH = 6;
+    }
+    if (sadTearActive) {
+      sadTearVy += 0.08f; // gravity
+      sadTearY += sadTearVy;
+      sadTearH += 0.15f; // stretches as it falls
+      if (sadTearY > 130) {
+        sadTearActive = false;
+        sadTearTimer = now + random(2000, 5000);
+      }
+    }
+  }
+
+  // --- ANGRY ---
+  if (currentEmotion == ANGRY)
+  {
+    angryTwitchAngle += 0.5f;
+    if (!angryTwitching && now > angryTwitchTimer) {
+      angryTwitching = true;
+      angryTwitchTimer = now + random(1000, 2500);
+    }
+    if (angryTwitching) {
+      angryTwitchOffset = sin(angryTwitchAngle * 5.0f) * 1.5f;
+      if (now > angryTwitchTimer) {
+        angryTwitching = false;
+        angryTwitchOffset = 0;
+      }
+    }
+  }
+
+  // Normal blink (INNOCENT uses slower blink speed)
   float blinkSpeed = (currentEmotion == INNOCENT) ? 0.08f : 0.25f;
   if (!isBlinking && (now - lastBlinkTime > (unsigned long)blinkInterval))
   {
@@ -398,6 +537,18 @@ void RobotEyes::update()
     if (blinkState < 0)
       blinkState = 0;
   }
+
+  // --- NEUTRAL: Idle gaze wander (only when MPU is not active) ---
+  if (currentEmotion == NEUTRAL && !mpuActive)
+  {
+    if (now > idleGazeTimer) {
+      idleTargetX = (float)random(-8, 9);
+      idleTargetY = (float)random(-4, 5);
+      idleGazeTimer = now + random(1500, 4000);
+    }
+    targetX += (idleTargetX - targetX) * 0.02f;
+    targetY += (idleTargetY - targetY) * 0.02f;
+  }
 }
 
 void RobotEyes::draw(LGFX_Sprite *spr)
@@ -405,19 +556,15 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   spr->fillScreen(TFT_BLACK);
 
   if (currentEmotion == WARNING_ANIM) {
-      int wX = (160 - WARNING_FRAME_WIDTH) / 2;
-      int wY = (128 - WARNING_FRAME_HEIGHT) / 2;
-      spr->drawBitmap(wX, wY, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, 0xF800); // Red
-      
-      // We can also draw some text or flashing borders if we want
-      // For now, just the icon
-      spr->setTextColor(0xF800, TFT_BLACK);
-      spr->setTextDatum(textdatum_t::top_center);
-      spr->drawString("WARNING", 80, wY + WARNING_FRAME_HEIGHT + 10);
-      return; // Skip normal eye drawing
+    int wX = (160 - WARNING_FRAME_WIDTH) / 2;
+    int wY = (128 - WARNING_FRAME_HEIGHT) / 2;
+    spr->drawBitmap(wX, wY, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, 0xF800);
+    spr->setTextColor(0xF800, TFT_BLACK);
+    spr->setTextDatum(textdatum_t::top_center);
+    spr->drawString("WARNING", 80, wY + WARNING_FRAME_HEIGHT + 10);
+    return;
   }
 
-  // APPLY MPU6050 EYE OFFSET HERE
   int centerX = 80 + (int)eyeOffsetX;
   int centerY = 64 + (int)eyeOffsetY;
   int drawY = centerY;
@@ -427,90 +574,153 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     drawY = centerY + (int)sleepBreathY;
   }
 
-  uint16_t scleraColor = getEmotionColor(currentEmotion);
+  // Draw teardrop (SAD) - behind eyes
+  if (currentEmotion == SAD && sadTearActive) {
+    int tx = centerX + (int)sadTearX;
+    int ty = (int)sadTearY;
+    // Very light grey teardrop (ghost colour, not bright blue)
+    spr->fillEllipse(tx, ty, (int)(sadTearW / 2), (int)(sadTearH / 2), 0xC618);
+  }
 
-  drawEye(spr, centerX - eyeGap, drawY, -1);
-  drawEye(spr, centerX + eyeGap, drawY, 1);
+  // Background particles for HAPPY (Hearts)
+  if (currentEmotion == HAPPY) {
+    uint16_t pinkColor = 0xF638; // RGB 244, 194, 194
+    for (int i = 0; i < MAX_HEARTS; i++) {
+      if (hearts[i].active) {
+        int hX = (int)hearts[i].x;
+        int hY = (int)hearts[i].y;
+        int s = (int)hearts[i].size;
+        // Draw heart shape: two circles and a triangle
+        spr->fillCircle(hX - s/2, hY, s/2, pinkColor);
+        spr->fillCircle(hX + s/2, hY, s/2, pinkColor);
+        spr->fillTriangle(hX - s, hY, hX + s, hY, hX, hY + s + 1, pinkColor);
+      }
+    }
+  }
 
-  // Smile mouth for HAPPY (crescent shape)
+  // Background particles for INNOCENT (Stars & Fireworks)
+  if (currentEmotion == INNOCENT) {
+    uint16_t yellowColor = 0xFFE0; // TFT_YELLOW
+    for (int i = 0; i < MAX_STARS; i++) {
+      if (stars[i].active) {
+        int sX = (int)stars[i].x;
+        int sY = (int)stars[i].y;
+        spr->drawLine(sX - 3, sY, sX + 3, sY, yellowColor);
+        spr->drawLine(sX, sY - 3, sX, sY + 3, yellowColor);
+      }
+    }
+    if (firework.active && firework.alpha > 0) {
+      int fX = (int)firework.x;
+      int fY = (int)firework.y;
+      float r = firework.radius;
+      // Draw 8 firework sparks in a circle
+      for (int a = 0; a < 8; a++) {
+        float angle = a * (PI / 4.0f);
+        int sx = fX + (int)(cos(angle) * r);
+        int sy = fY + (int)(sin(angle) * r);
+        spr->fillCircle(sx, sy, 1, yellowColor);
+      }
+    }
+  }
+
+  // GUARDING: asymmetric eye sizes for peeking feel
+  if (currentEmotion == GUARDING) {
+    // Determine which way pupils are panning
+    float panDir = curX; // positive = looking right
+    // Eye that is "looking towards" gets bigger (the leading eye)
+    float leftScale  = 1.0f - (panDir / 12.0f) * 0.15f;  // right pan = left eye shrinks
+    float rightScale = 1.0f + (panDir / 12.0f) * 0.15f;  // right pan = right eye grows
+    leftScale  = constrain(leftScale,  0.80f, 1.20f);
+    rightScale = constrain(rightScale, 0.80f, 1.20f);
+    int leftW  = (int)(eyeW * leftScale);
+    int leftH  = (int)(eyeH * 0.85f * leftScale);
+    int rightW = (int)(eyeW * rightScale);
+    int rightH = (int)(eyeH * 0.85f * rightScale);
+    drawEye(spr, centerX - eyeGap, drawY, -1, leftW, leftH);
+    drawEye(spr, centerX + eyeGap, drawY,  1, rightW, rightH);
+  } else {
+    // INNOCENT: Larger and taller eyes
+    if (currentEmotion == INNOCENT) {
+      int innW = (int)(eyeW * 1.3f);
+      int innH = (int)(eyeH * 1.25f);
+      drawEye(spr, centerX - eyeGap, drawY, -1, innW, innH);
+      drawEye(spr, centerX + eyeGap, drawY,  1, innW, innH);
+    } else {
+      drawEye(spr, centerX - eyeGap, drawY, -1);
+      drawEye(spr, centerX + eyeGap, drawY,  1);
+    }
+  }
+
+  // Smile mouth for HAPPY
   if (currentEmotion == HAPPY)
   {
     int mR = 8;
     int mY = constrain(drawY + eyeH / 2 + 8, mR, 127 - mR);
-    spr->fillCircle(centerX, mY, mR, scleraColor);
+    spr->fillCircle(centerX, mY, mR, TFT_WHITE);
     spr->fillRect(centerX - mR, mY - mR, mR * 2 + 1, mR, TFT_BLACK);
+  }
+
+  // Panic sweat drop
+  if (currentEmotion == PANIC && panicSweatActive) {
+    int sweatEyeX = centerX + panicSweatSide * eyeGap;
+    int sweatX = sweatEyeX + panicSweatSide * (eyeW / 2 - 4);
+    int sweatY = drawY - eyeH / 2 - 6 + (int)panicSweatY;
+    spr->fillEllipse(sweatX, sweatY, 3, 5, 0xDEDB); // very light grey
   }
 }
 
-void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
+void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride, int hOverride)
 {
-  uint16_t scleraColor = getEmotionColor(currentEmotion);
+  uint16_t scleraColor = TFT_WHITE;
+  int eW = (wOverride > 0) ? wOverride : eyeW;
+  int eH = (hOverride > 0) ? hOverride : eyeH;
 
   // HAPPY
   if (currentEmotion == HAPPY)
   {
     float effectiveBlink = max(happyBlinkState, transitionBlink);
-    // Squish vertically at bounce peak for a springy feel
     int squish = (int)(max(0.0f, happyBounceY) * 0.4f);
-    int rawH   = eyeH - squish;
+    int rawW   = eW + (int)happyEyeWidthPulse; // breathing swell
+    int rawH   = eH - squish;
     int happyH = (effectiveBlink > 0) ? max(3, (int)(rawH * (1.0f - effectiveBlink * 0.90f))) : rawH;
     int rr     = min(eyeR, happyH / 2 - 1);
 
-    // Main eye: wide-open rounded rectangle
-    spr->fillRoundRect(x - eyeW / 2, y - happyH / 2, eyeW, happyH, rr, scleraColor);
+    spr->fillRoundRect(x - rawW / 2, y - happyH / 2, rawW, happyH, rr, scleraColor);
 
     if (happyH > 10 && effectiveBlink < 0.6f)
     {
-      // Large upward-gazing pupil in upper portion
       int pX = x + 1;
       int pY = y - happyH / 6;
       int pR = 9;
       pY = constrain(pY, y - happyH / 2 + pR + 2, y + happyH / 2 - pR - 2);
       spr->fillCircle(pX, pY, pR, TFT_BLACK);
-
-      // Primary catchlight (upper-left, large)
       spr->fillCircle(pX - 3, pY - 4, 3, TFT_WHITE);
-      // Secondary catchlight (lower-right, small)
       spr->fillCircle(pX + 4, pY + 2, 1, TFT_WHITE);
 
-      // Cheek blush: clear horizontal row of 3 dots below eye, outer side
-      int chBaseX = x + side * (eyeW / 2 - 6);
+      int chBaseX = x + side * (rawW / 2 - 6);
       int chY     = y + happyH / 2 + 6;
       for (int i = 0; i < 3; i++) {
         spr->fillCircle(chBaseX + side * i * 4, chY, 2, TFT_WHITE);
       }
-
-      // Corner star sparkle: 3-line cross at outer upper corner
-      int spX = x + side * (eyeW / 2 + 4);
-      int spY = y - happyH / 2 - 3;
-      spr->drawLine(spX - 3, spY,     spX + 3, spY,     TFT_WHITE); // horizontal
-      spr->drawLine(spX,     spY - 3, spX,     spY + 3, TFT_WHITE); // vertical
-      spr->drawLine(spX - 2, spY - 2, spX + 2, spY + 2, TFT_WHITE); // diagonal
-
-      // Orbiting shimmer dot: figure-eight path around the eye
-      int sX = x + (int)(cos(happyShimmerAngle) * (eyeW / 2 + 6));
-      int sY = (y - happyH / 3) + (int)(sin(happyShimmerAngle * 2.0f) * 6);
-      spr->fillCircle(sX, sY, 1, TFT_WHITE);
     }
     return;
   }
 
-  // SLEEPY / ASLEEP (shared curved lid rendering)
+  // SLEEPY / ASLEEP
   if (currentEmotion == SLEEPY || currentEmotion == ASLEEP)
   {
-    int eyeTop = y - eyeH / 2; // Sclera
-    spr->fillRoundRect(x - eyeW / 2, eyeTop, eyeW, eyeH, eyeR, scleraColor);
+    int eyeTop = y - eH / 2;
+    spr->fillRoundRect(x - eW / 2, eyeTop, eW, eH, eyeR, scleraColor);
     int lidR = 44;
-    int lidCY = eyeTop - lidR + (int)(eyeH * sleepyLidHeight);
+    int lidCY = eyeTop - lidR + (int)(eH * sleepyLidHeight);
     int lidCX = x + (-side) * (int)(sleepyLidHeight * 5);
     spr->fillCircle(lidCX, lidCY, lidR, TFT_BLACK);
-    int lidLineY = eyeTop + (int)(eyeH * sleepyLidHeight);
-    int visH = y + eyeH / 2 - lidLineY;
-    // Only draw pupil for SLEEPY, not ASLEEP (eyes closed during sleep)
+    int lidLineY = eyeTop + (int)(eH * sleepyLidHeight);
+    int visH = y + eH / 2 - lidLineY;
     if (currentEmotion == SLEEPY && visH > 8)
     {
       int pX = x + (int)curX + (int)sleepMicroDriftX;
-      int pY = constrain(y + (int)curY, lidLineY + pupilR + 2, y + eyeH / 2 - pupilR - 2);
+      int pY = constrain(y + (int)curY, lidLineY + pupilR + 2, y + eH / 2 - pupilR - 2);
       int effR = (visH < 24) ? max(4, pupilR - (24 - visH) / 3) : pupilR;
       spr->fillCircle(pX, pY, effR, TFT_BLACK);
       if (visH > 18)
@@ -519,56 +729,44 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     return;
   }
 
-  // INNOCENT (big round eyes, large pupils, prominent catchlights, alive gaze)
+  // INNOCENT
   if (currentEmotion == INNOCENT)
   {
     float eb  = max(blinkState, transitionBlink);
-    int   iH  = 46; // slightly taller than normal eyeH (42)
+    int   iH  = eH; // uses the override size passed in from draw()
     int   iHe = (eb > 0) ? max(3, (int)(iH * (1.0f - eb))) : iH;
-    int   rr  = min(eyeR + 3, iHe / 2 - 1); // Base eye shape
+    int   rr  = min(eyeR + 3, iHe / 2 - 1);
 
-    spr->fillRoundRect(x - eyeW / 2, y - iHe / 2, eyeW, iHe, rr, scleraColor);
+    spr->fillRoundRect(x - eW / 2, y - iHe / 2, eW, iHe, rr, scleraColor);
 
     if (iHe > 14 && eb < 0.6f)
     {
-      int pR = 11; // large pupil
+      int pR = 14; // even larger pupil for the larger eye
       int pX = x + (int)curX;
       int pY = constrain(y + (int)curY, y - iHe / 2 + pR + 2, y + iHe / 2 - pR - 2);
       spr->fillCircle(pX, pY, pR, TFT_BLACK);
-
-      // Large primary catchlight (upper-left)
       spr->fillCircle(pX - 4, pY - 5, 4, TFT_WHITE);
-      // Secondary catchlight (lower-right)
       spr->fillCircle(pX + 4, pY + 3, 2, TFT_WHITE);
-
-      // Subtle shimmer dot orbiting slowly
-      int shX = x + (int)(cos(innocentPulseAngle) * (eyeW / 2 + 3));
-      int shY = y - iHe / 3 + (int)(sin(innocentPulseAngle * 1.5f) * 3);
-      spr->fillCircle(shX, shY, 1, TFT_WHITE);
     }
     return;
   }
 
-  // GUARDING (Cute "Cat Ready to Pounce")
+  // GUARDING (with large dilated pupils + peeking asymmetry handled in draw())
   if (currentEmotion == GUARDING)
   {
     float effectiveBlink = max(blinkState, transitionBlink);
-    int guardH = (int)(eyeH * 0.85f); // Eyelids lowered slightly in focus
-    int h = max(2, (int)(guardH * (1.0f - effectiveBlink)));
-    
-    // Smooth rounded eyes, but slightly squinted // Sclera
-    spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, scleraColor);
+    int h = max(2, (int)(eH * (1.0f - effectiveBlink)));
+
+    spr->fillRoundRect(x - eW / 2, y - h / 2, eW, h, eyeR, scleraColor);
 
     if (h > 6)
     {
-      int pX = x + curX;
+      int pX = x + (int)curX;
       int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
 
-      // Pupils slowly dilate and contract (pulsating focus)
-      int effR = 7 + (int)(sin(guardPupilPulseAngle) * 3); 
+      // Large pulsing dilated pupil (not slit)
+      int effR = 12 + (int)(sin(guardPupilPulseAngle) * 3);
       spr->fillCircle(pX, pY, effR, TFT_BLACK);
-      
-      // Standard catchlights
       spr->fillCircle(pX - 3, pY - 3, 2, TFT_WHITE);
       spr->fillCircle(pX + 3, pY + 2, 1, TFT_WHITE);
     }
@@ -577,12 +775,22 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
 
   // STANDARD RENDERING (Neutral, Angry, Sad, Dizzy, Wakeup, Panic)
   float effectiveBlink = max(blinkState, transitionBlink);
-  int h = max(2, (int)(eyeH * (1.0f - effectiveBlink))); // Draw main sclera
-  spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, scleraColor);
+  int h = max(2, (int)(eH * (1.0f - effectiveBlink)));
+
+  // SAD: droopy top lid (shallow black arc clipping the top)
+  if (currentEmotion == SAD) {
+    int sadY = y - h / 2 + (int)(sin(sadLidAngle) * 2.0f); // slight sway
+    spr->fillRoundRect(x - eW / 2, sadY, eW, h, eyeR, scleraColor);
+    // Clip top with a shallow black arc to look heavy-lidded
+    int lidClipR = eW + 10;
+    spr->fillCircle(x, sadY - lidClipR + 8, lidClipR, TFT_BLACK);
+  } else {
+    spr->fillRoundRect(x - eW / 2, y - h / 2, eW, h, eyeR, scleraColor);
+  }
 
   if (h > 8)
   {
-    int pX = x + curX;
+    int pX = x + (int)curX;
     int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
 
     int effR = pupilR;
@@ -591,17 +799,35 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     if (currentEmotion == DIZZY)
       effR = pupilR - 2 + (int)(sin(dizzyAngle) * 2);
     if (currentEmotion == PANIC)
-      effR = 4; // Tiny terrified pupils
+      effR = 5; // Small terrified pupils
+
+    // DIZZY: spiral ghost trail
+    if (currentEmotion == DIZZY) {
+      for (int t = 0; t < 3; t++) {
+        int gX = x + (int)(sin(dizzyTrailAngle[t]) * 10.0f);
+        int gY = y + (int)(cos(dizzyTrailAngle[t]) * 10.0f);
+        int gR = effR - (t + 1) * 2;
+        if (gR > 1) spr->drawCircle(gX, gY, gR, 0x4208); // very dark grey ghost
+      }
+    }
 
     spr->fillCircle(pX, pY, effR, TFT_BLACK);
     spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
+
+    // PANIC: concentric ring around pupil
+    if (currentEmotion == PANIC) {
+      spr->drawCircle(pX, pY, effR + 3, 0x8410); // dark grey ring
+      spr->drawCircle(pX, pY, effR + 6, 0x4208); // darker outer ring
+    }
   }
 
+  // ANGRY: angled brow with twitch
   if (currentEmotion == ANGRY)
   {
+    int twitchY = (int)angryTwitchOffset;
     if (side == -1)
-      spr->fillTriangle(x + eyeW / 2, y - eyeH / 2 + 15, x + eyeW / 2, y - eyeH / 2 - 5, x - 10, y - eyeH / 2 - 5, TFT_BLACK);
+      spr->fillTriangle(x + eW/2, y - eH/2 + 15 + twitchY, x + eW/2, y - eH/2 - 5 + twitchY, x - 10, y - eH/2 - 5 + twitchY, TFT_BLACK);
     else
-      spr->fillTriangle(x - eyeW / 2, y - eyeH / 2 + 15, x - eyeW / 2, y - eyeH / 2 - 5, x + 10, y - eyeH / 2 - 5, TFT_BLACK);
+      spr->fillTriangle(x - eW/2, y - eH/2 + 15 + twitchY, x - eW/2, y - eH/2 - 5 + twitchY, x + 10, y - eH/2 - 5 + twitchY, TFT_BLACK);
   }
 }

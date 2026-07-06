@@ -3,7 +3,6 @@
 
 #include <LovyanGFX.hpp>
 
-// Added ASLEEP, DIZZY, and WAKEUP
 enum Emotion
 {
   NEUTRAL,
@@ -64,15 +63,38 @@ private:
   // Happy Physics
   float happyBounceY = 0;
   float happyBounceAngle = 0;
-  float happyShimmerAngle = 0.0;
   float happyBlinkState = 0.0;
   bool happyIsBlinking = false;
   unsigned long lastHappyBlinkTime = 0;
   int happyBlinkInterval = 4000;
+  float happyEyeWidthPulse = 0.0; // breathing swell
+
+  // Background Hearts (Happy)
+  static const int MAX_HEARTS = 5;
+  struct Heart {
+    float x, y, vy, size;
+    bool active;
+  } hearts[MAX_HEARTS];
+  unsigned long heartSpawnTimer = 0;
 
   // Innocent & Dizzy
   float innocentPulseAngle = 0.0;
   float dizzyAngle = 0.0;
+  float dizzyTrailAngle[3] = {0, 0, 0}; // spiral trail
+
+  // Background Stars/Fireworks (Innocent)
+  static const int MAX_STARS = 6;
+  struct Star {
+    float x, y, vy;
+    bool active;
+  } stars[MAX_STARS];
+  unsigned long starSpawnTimer = 0;
+
+  struct Firework {
+    float x, y, radius, maxRadius, alpha;
+    bool active;
+  } firework;
+  unsigned long fireworkTimer = 0;
 
   // Transition blink (smooth crossfade on emotion switch)
   float transitionBlink = 0.0f;
@@ -82,21 +104,55 @@ private:
   unsigned long lastLookAtTime = 0;
   float guardPupilPulseAngle = 0.0f;
   float panicAngle = 0.0f;
-  
+
+  // Warning
   int warningFrame = 0;
   unsigned long lastWarningFrameTime = 0;
+
+  // --- NEW: SAD TEARDROP ---
+  bool sadTearActive = false;
+  float sadTearX = 0, sadTearY = 0;
+  float sadTearVy = 0;
+  float sadTearW = 0, sadTearH = 0;
+  unsigned long sadTearTimer = 0;
+  float sadLidAngle = 0.0f; // droopy top lid
+
+  // --- NEW: ANGRY TWITCH ---
+  float angryTwitchAngle = 0.0f;
+  float angryTwitchOffset = 0.0f;
+  unsigned long angryTwitchTimer = 0;
+  bool angryTwitching = false;
+
+  // --- NEW: PANIC SWEAT ---
+  float panicSweatY = 0.0f;
+  bool panicSweatActive = false;
+  unsigned long panicSweatTimer = 0;
+  int panicSweatSide = 1; // which eye side
+
+  // --- NEW: NEUTRAL IDLE GAZE ---
+  float idleDriftAngle = 0.0f;
+  float idleDriftX = 0.0f, idleDriftY = 0.0f;
+  float idleTargetX = 0.0f, idleTargetY = 0.0f;
+  unsigned long idleGazeTimer = 0;
+  bool mpuActive = false; // set true if MPU is moving (overrides idle)
+
+  // --- NEW: INNOCENT ---
+  unsigned long innocentFlickTimer = 0;
+  bool innocentFlicking = false;
+  float innocentFlickTarget = 0.0f;
 
 public:
   void init();
   void update();
   void draw(LGFX_Sprite *spr);
   void lookAt(float x, float y);
-  void setEyeOffset(float x, float y); // NEW: Controls the whole eye tilt
+  void setEyeOffset(float x, float y);
   void setEmotion(Emotion e);
+  void setMpuActive(bool active) { mpuActive = active; }
   Emotion getEmotion() { return currentEmotion; }
 
 private:
-  void drawEye(LGFX_Sprite *spr, int x, int y, int side);
+  void drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride = 0, int hOverride = 0);
 };
 
 #endif

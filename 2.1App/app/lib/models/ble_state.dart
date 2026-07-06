@@ -24,12 +24,11 @@ class BleState extends ChangeNotifier {
 
     try {
       await FlutterBluePlus.startScan(
-        withServices: [Guid(serviceUuid)],
         timeout: const Duration(seconds: 15),
       );
 
       _scanSub = FlutterBluePlus.scanResults.listen((results) {
-        scanResults = results;
+        scanResults = results.where((r) => r.device.advName.toLowerCase().contains('robot')).toList();
         notifyListeners();
       });
 

@@ -213,6 +213,9 @@ void setup() {
   Serial.begin(115200);
   delay(3000); 
 
+  // Initialize BLE Server for Provisioning FIRST to guarantee memory
+  BleManager::init();
+
   Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); 
 
   pinMode(TOUCH_PIN, INPUT);
@@ -223,6 +226,12 @@ void setup() {
   display.setBrightness(128); 
   display.setRotation(1); // KEEP THIS AT 1 (Hardware is happy here)
   sprite.setColorDepth(16); 
+  
+  // FIX: Swap RGB order so RED shows as Red, not Blue
+  auto cfg = display.getPanel()->config();
+  cfg.rgb_order = true; 
+  display.getPanel()->config(cfg);
+  
   sprite.createSprite(160, 128);
   eyes.init();
   
@@ -265,9 +274,6 @@ void setup() {
 
   xTaskCreatePinnedToCore(i2sReadTask, "I2SRead", 4096, NULL, 5, &i2sTaskHandle, 0);
   xTaskCreatePinnedToCore(audioInferenceTask, "AudioAI", 16384, NULL, 4, &audioTaskHandle, 0);
-  
-  // Initialize BLE Server for Provisioning
-  BleManager::init();
   
   // Initialize MQTT Manager
   MqttManager::init(&eyes);
@@ -318,7 +324,12 @@ void loop() {
   float totalAccel = sqrt(pow(a.acceleration.x,2) + pow(a.acceleration.y,2) + pow(a.acceleration.z,2));
   float totalGyro  = sqrt(pow(g.gyro.x,2)  + pow(g.gyro.y,2)  + pow(g.gyro.z,2));
   eyes.setEyeOffset(-a.acceleration.x * 1.5, a.acceleration.y * 1.5);
-  
+
+  // Tell the eye system whether the MPU is actively providing tilt data
+  // so idle gaze drift doesn't fight with real physical motion
+  bool mpuMoving = (abs(a.acceleration.x) > 0.8f || abs(a.acceleration.y) > 0.8f);
+  eyes.setMpuActive(mpuMoving);
+
   bool physicallyMoved = false;
   bool strongPhysical  = false;
 
