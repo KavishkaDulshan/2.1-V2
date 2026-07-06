@@ -41,20 +41,43 @@ RobotEyes eyes;
 
 // Display Setup
 class LGFX : public lgfx::LGFX_Device {
-  lgfx::Panel_SH110x _panel_instance;
-  lgfx::Bus_I2C      _bus_instance;
+  lgfx::Panel_ST7735S _panel_instance;
+  lgfx::Bus_SPI       _bus_instance;
 public:
   LGFX(void) {
     {
       auto cfg = _bus_instance.config();
-      cfg.i2c_port = 0; cfg.freq_write = 400000;
-      cfg.pin_sda = 4; cfg.pin_scl = 5; cfg.i2c_addr = 0x3C;
-      _bus_instance.config(cfg); _panel_instance.setBus(&_bus_instance);
+      cfg.spi_host = SPI2_HOST;
+      cfg.spi_mode = 0;
+      cfg.freq_write = 27000000;
+      cfg.freq_read  = 16000000;
+      cfg.spi_3wire  = false;
+      cfg.use_lock   = true;
+      cfg.dma_channel = SPI_DMA_CH_AUTO;
+      cfg.pin_sclk = 12;
+      cfg.pin_mosi = 11;
+      cfg.pin_miso = -1;
+      cfg.pin_dc   = 9;
+      _bus_instance.config(cfg);
+      _panel_instance.setBus(&_bus_instance);
     }
     {
       auto cfg = _panel_instance.config();
-      cfg.panel_width = 128; cfg.panel_height = 64;
-      cfg.offset_x = 2;
+      cfg.pin_cs           = 8;
+      cfg.pin_rst          = 10;
+      cfg.pin_busy         = -1;
+      cfg.panel_width      = 128;
+      cfg.panel_height     = 160;
+      cfg.offset_x         = 0;
+      cfg.offset_y         = 0;
+      cfg.offset_rotation  = 1; // Landscape (1 or 3 depending on cable orientation)
+      cfg.dummy_read_pixel = 8;
+      cfg.dummy_read_bits  = 1;
+      cfg.readable         = false;
+      cfg.invert           = false;
+      cfg.rgb_order        = false;
+      cfg.dlen_16bit       = false;
+      cfg.bus_shared       = false;
       _panel_instance.config(cfg);
     }
     setPanel(&_panel_instance);
@@ -199,10 +222,11 @@ void setup() {
   display.init(); 
   display.setBrightness(128); 
   display.setRotation(2);
-  sprite.setColorDepth(1); 
-  sprite.createSprite(128, 64);
+  sprite.setColorDepth(16); 
+  sprite.createSprite(160, 128);
   eyes.init();
   
+  Wire.begin(4, 5); // Initialize I2C for MPU6050
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050");
   } else {

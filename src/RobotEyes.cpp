@@ -7,6 +7,27 @@ void RobotEyes::init()
   randomSeed(esp_random());
 }
 
+uint16_t RobotEyes::getEmotionColor(Emotion e)
+{
+  switch (e)
+  {
+    case HAPPY: return 0x07E0; // TFT_GREEN
+    case ANGRY: return 0xF800; // TFT_RED
+    case SAD: return 0x001F; // TFT_BLUE
+    case DIZZY: return 0x780F; // TFT_PURPLE
+    case WARNING_ANIM: return 0xFDA0; // TFT_ORANGE
+    case SLEEPY: return 0x7BEF; // DARKGREYish
+    case ASLEEP: return 0x39E7; // DARKER GREY
+    case INNOCENT: return 0x07FF; // TFT_CYAN
+    case PANIC: return 0xFFE0; // TFT_YELLOW
+    case NEUTRAL:
+    case WAKEUP:
+    case GUARDING:
+    default:
+      return 0xFFFF; // TFT_WHITE
+  }
+}
+
 void RobotEyes::setEmotion(Emotion e)
 {
   currentEmotion = e;
@@ -384,44 +405,47 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   spr->fillScreen(TFT_BLACK);
 
   if (currentEmotion == WARNING_ANIM) {
-      // Draw 64x64 bitmap in center bottom-ish
-      spr->drawBitmap(0, 0, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, TFT_WHITE);
+      int wX = (160 - WARNING_FRAME_WIDTH) / 2;
+      int wY = (128 - WARNING_FRAME_HEIGHT) / 2;
+      spr->drawBitmap(wX, wY, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, 0xF800); // Red
       
-      // Draw typography: "Do not touch anything!"
-      spr->setTextColor(TFT_WHITE, TFT_BLACK);
-      spr->setTextSize(1);
-      spr->setTextDatum(textdatum_t::middle_left);
-      spr->drawString("DO NOT", 70, 16);
-      spr->drawString("TOUCH", 70, 32);
-      spr->drawString("ANYTHING!", 70, 48);
-      return;
+      // We can also draw some text or flashing borders if we want
+      // For now, just the icon
+      spr->setTextColor(0xF800, TFT_BLACK);
+      spr->setTextDatum(textdatum_t::top_center);
+      spr->drawString("WARNING", 80, wY + WARNING_FRAME_HEIGHT + 10);
+      return; // Skip normal eye drawing
   }
 
   // APPLY MPU6050 EYE OFFSET HERE
-  int centerX = 64 + (int)eyeOffsetX;
-  int centerY = 32 + (int)eyeOffsetY;
+  int centerX = 80 + (int)eyeOffsetX;
+  int centerY = 64 + (int)eyeOffsetY;
   int drawY = centerY;
 
-  if (currentEmotion == HAPPY)
-    drawY = centerY + (int)happyBounceY;
   if (currentEmotion == SLEEPY || currentEmotion == ASLEEP)
+  {
     drawY = centerY + (int)sleepBreathY;
+  }
+
+  uint16_t scleraColor = getEmotionColor(currentEmotion);
 
   drawEye(spr, centerX - eyeGap, drawY, -1);
   drawEye(spr, centerX + eyeGap, drawY, 1);
 
-  // Smile mouth for HAPPY (∪ crescent shape)
+  // Smile mouth for HAPPY (crescent shape)
   if (currentEmotion == HAPPY)
   {
-    int mR = 5;
-    int mY = constrain(drawY + eyeH / 2 + 4, mR, 63 - mR);
-    spr->fillCircle(centerX, mY, mR, TFT_WHITE);
+    int mR = 8;
+    int mY = constrain(drawY + eyeH / 2 + 8, mR, 127 - mR);
+    spr->fillCircle(centerX, mY, mR, scleraColor);
     spr->fillRect(centerX - mR, mY - mR, mR * 2 + 1, mR, TFT_BLACK);
   }
 }
 
 void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
 {
+  uint16_t scleraColor = getEmotionColor(currentEmotion);
+
   // HAPPY
   if (currentEmotion == HAPPY)
   {
@@ -433,7 +457,7 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     int rr     = min(eyeR, happyH / 2 - 1);
 
     // Main eye: wide-open rounded rectangle
-    spr->fillRoundRect(x - eyeW / 2, y - happyH / 2, eyeW, happyH, rr, TFT_WHITE);
+    spr->fillRoundRect(x - eyeW / 2, y - happyH / 2, eyeW, happyH, rr, scleraColor);
 
     if (happyH > 10 && effectiveBlink < 0.6f)
     {
@@ -474,8 +498,8 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
   // SLEEPY / ASLEEP (shared curved lid rendering)
   if (currentEmotion == SLEEPY || currentEmotion == ASLEEP)
   {
-    int eyeTop = y - eyeH / 2;
-    spr->fillRoundRect(x - eyeW / 2, eyeTop, eyeW, eyeH, eyeR, TFT_WHITE);
+    int eyeTop = y - eyeH / 2; // Sclera
+    spr->fillRoundRect(x - eyeW / 2, eyeTop, eyeW, eyeH, eyeR, scleraColor);
     int lidR = 44;
     int lidCY = eyeTop - lidR + (int)(eyeH * sleepyLidHeight);
     int lidCX = x + (-side) * (int)(sleepyLidHeight * 5);
@@ -501,9 +525,9 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     float eb  = max(blinkState, transitionBlink);
     int   iH  = 46; // slightly taller than normal eyeH (42)
     int   iHe = (eb > 0) ? max(3, (int)(iH * (1.0f - eb))) : iH;
-    int   rr  = min(eyeR + 3, iHe / 2 - 1);
+    int   rr  = min(eyeR + 3, iHe / 2 - 1); // Base eye shape
 
-    spr->fillRoundRect(x - eyeW / 2, y - iHe / 2, eyeW, iHe, rr, TFT_WHITE);
+    spr->fillRoundRect(x - eyeW / 2, y - iHe / 2, eyeW, iHe, rr, scleraColor);
 
     if (iHe > 14 && eb < 0.6f)
     {
@@ -532,8 +556,8 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
     int guardH = (int)(eyeH * 0.85f); // Eyelids lowered slightly in focus
     int h = max(2, (int)(guardH * (1.0f - effectiveBlink)));
     
-    // Smooth rounded eyes, but slightly squinted
-    spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, TFT_WHITE);
+    // Smooth rounded eyes, but slightly squinted // Sclera
+    spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, scleraColor);
 
     if (h > 6)
     {
@@ -553,8 +577,8 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side)
 
   // STANDARD RENDERING (Neutral, Angry, Sad, Dizzy, Wakeup, Panic)
   float effectiveBlink = max(blinkState, transitionBlink);
-  int h = max(2, (int)(eyeH * (1.0f - effectiveBlink)));
-  spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, TFT_WHITE);
+  int h = max(2, (int)(eyeH * (1.0f - effectiveBlink))); // Draw main sclera
+  spr->fillRoundRect(x - eyeW / 2, y - h / 2, eyeW, h, eyeR, scleraColor);
 
   if (h > 8)
   {
