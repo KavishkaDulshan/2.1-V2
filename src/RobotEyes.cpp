@@ -125,7 +125,7 @@ void RobotEyes::setEmotion(Emotion e)
     guardSirenAngle = 0.0f;
     guardPupilPulseAngle = 0.0f;
     targetX = 0;
-    targetY = 15.0f; // lower the eyes
+    targetY = 8.0f; // lower the eyes slightly
     easeFactor = 0.1f;
   }
   else if (e == PANIC)
@@ -269,7 +269,7 @@ void RobotEyes::update()
     if (now - lastLookAtTime > 2000) {
       guardScanAngle += 0.03f;
       targetX = sin(guardScanAngle) * 12.0f;
-      targetY = 15.0f; // keep eyes lowered
+      targetY = 8.0f; // keep eyes lowered slightly
     }
     blinkState = 0.0f;
     return;
@@ -779,13 +779,31 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     float bdx = cos(bA), bdz = sin(bA);
     
     // 1. Draw sideways beams (Background)
-    int rL = (int)(25.0f * rdx);
-    int rW = (int)(8.0f * fabs(rdx));
-    if (abs(rL) > 2) spr->fillTriangle(bx, by, bx + rL, by - rW, bx + rL, by + rW, 0xA000); // Red beam
+    // Red beam with fade
+    int rL = (int)(45.0f * rdx);
+    int rW = (int)(15.0f * fabs(rdx));
+    if (abs(rL) > 2) {
+        spr->fillTriangle(bx, by, bx + rL, by - rW, bx + rL, by + rW, 0x5000); // Dark outer
+        int rL2 = (int)(rL * 0.66f);
+        int rW2 = (int)(rW * 0.66f);
+        spr->fillTriangle(bx, by, bx + rL2, by - rW2, bx + rL2, by + rW2, 0xA000); // Medium mid
+        int rL1 = (int)(rL * 0.33f);
+        int rW1 = (int)(rW * 0.33f);
+        spr->fillTriangle(bx, by, bx + rL1, by - rW1, bx + rL1, by + rW1, TFT_RED); // Bright core
+    }
     
-    int bL = (int)(25.0f * bdx);
-    int bW = (int)(8.0f * fabs(bdx));
-    if (abs(bL) > 2) spr->fillTriangle(bx, by, bx + bL, by - bW, bx + bL, by + bW, 0x0015); // Blue beam
+    // Blue beam with fade
+    int bL = (int)(45.0f * bdx);
+    int bW = (int)(15.0f * fabs(bdx));
+    if (abs(bL) > 2) {
+        spr->fillTriangle(bx, by, bx + bL, by - bW, bx + bL, by + bW, 0x000A); // Dark outer
+        int bL2 = (int)(bL * 0.66f);
+        int bW2 = (int)(bW * 0.66f);
+        spr->fillTriangle(bx, by, bx + bL2, by - bW2, bx + bL2, by + bW2, 0x0015); // Medium mid
+        int bL1 = (int)(bL * 0.33f);
+        int bW1 = (int)(bW * 0.33f);
+        spr->fillTriangle(bx, by, bx + bL1, by - bW1, bx + bL1, by + bW1, TFT_BLUE); // Bright core
+    }
     
     // 2. Draw Dome and Base
     spr->fillRoundRect(70, -2, 20, 18, 6, 0xCE79); // Light silver dome
