@@ -26,6 +26,7 @@ void RobotEyes::init()
   for (int i = 0; i < MAX_HEARTS; i++) hearts[i].active = false;
   for (int i = 0; i < MAX_STARS; i++) stars[i].active = false;
   for (int i = 0; i < MAX_STEAM; i++) steamPuffs[i].active = false;
+  for (int i = 0; i < MAX_ZZZ; i++) zParticles[i].active = false;
   firework.active = false;
 }
 
@@ -78,6 +79,8 @@ void RobotEyes::setEmotion(Emotion e)
     targetY = 20.0f;
     curY = 20.0f;
     easeFactor = 0.04f;
+    for (int i = 0; i < MAX_ZZZ; i++) zParticles[i].active = false;
+    zSpawnTimer = millis();
   }
   else if (e == HAPPY)
   {
@@ -272,6 +275,30 @@ void RobotEyes::update()
     sleepBreathAngle += 0.010f;
     sleepBreathY = sin(sleepBreathAngle) * 2.5f;
     sleepTrembleAngle += 0.08f;
+    
+    // Update Zzz Particles
+    if (now > zSpawnTimer) {
+      for (int i = 0; i < MAX_ZZZ; i++) {
+        if (!zParticles[i].active) {
+          zParticles[i].active = true;
+          zParticles[i].x = 135; // top right
+          zParticles[i].y = 40;
+          zParticles[i].size = 0.5f;
+          zParticles[i].spawnTime = now;
+          break;
+        }
+      }
+      zSpawnTimer = now + random(1500, 2500);
+    }
+    for (int i = 0; i < MAX_ZZZ; i++) {
+      if (zParticles[i].active) {
+        zParticles[i].y -= 0.4f;
+        zParticles[i].size += 0.01f;
+        zParticles[i].x += sin((now - zParticles[i].spawnTime) * 0.003f) * 0.6f;
+        if (zParticles[i].y < -20) zParticles[i].active = false;
+      }
+    }
+
     if (now - lastSleepCheck > 50)
     {
       switch (sleepPhase)
@@ -714,9 +741,11 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
   }
 
+  // Background particles for ASLEEP (Zzz) moved to the end of draw() to overlay eyelids
+
   // Background particles for ANGRY (Steam)
   if (currentEmotion == ANGRY) {
-    uint16_t steamColor = 0xC618; // Light grey
+    uint16_t steamColor = 0xFC60; // Dark Orange #FF8C00
 
     // Steam puffs
     for (int i = 0; i < MAX_STEAM; i++) {
@@ -782,17 +811,41 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     int cy = drawY - (eyeH / 2) - 5;
     uint16_t veinColor = 0xF800; // Bright Red
 
-    int size = 9 + (int)(sin(angryTwitchAngle * 2.0f) * 2.0f); // pulsating size 7 to 11
-    int t = 4; // outer red thickness (radius)
-    // Red Cross (Vertical and Horizontal rounded rects)
-    spr->fillRoundRect(cx - size, cy - t, size * 2, t * 2, t, veinColor);
-    spr->fillRoundRect(cx - t, cy - size, t * 2, size * 2, t, veinColor);
+    int r = 5 + (int)(sin(angryTwitchAngle * 2.0f) * 1.5f); // 3 to 6
+    int w = 6; // offset from center (larger gap between pieces)
     
-    // Black Cross (Cutout the center to form the 4 distinct corners)
-    int it = 2; // inner black thickness (radius)
-    int is = size - 2;
-    spr->fillRoundRect(cx - is, cy - it, is * 2, it * 2, it, TFT_BLACK);
-    spr->fillRoundRect(cx - it, cy - is, it * 2, is * 2, it, TFT_BLACK);
+    // Draw 4 distinct corners that bulge outward
+    // Top-Left corner (Left to Up -> 270 to 360)
+    spr->drawArc(cx - w, cy - w, r, r - 3, 270, 360, veinColor);
+    // Top-Right corner (Up to Right -> 0 to 90)
+    spr->drawArc(cx + w, cy - w, r, r - 3, 0, 90, veinColor);
+    // Bottom-Right corner (Right to Down -> 90 to 180)
+    spr->drawArc(cx + w, cy + w, r, r - 3, 90, 180, veinColor);
+    // Bottom-Left corner (Down to Left -> 180 to 270)
+    spr->drawArc(cx - w, cy + w, r, r - 3, 180, 270, veinColor);
+  }
+
+  // Foreground particles for ASLEEP (Zzz) drawn LAST so it overlaps the eyelids
+  if (currentEmotion == ASLEEP) {
+    uint16_t zColor = 0x7E3F; // Light blue
+    for (int i = 0; i < MAX_ZZZ; i++) {
+      if (zParticles[i].active) {
+        int zx = (int)zParticles[i].x;
+        int zy = (int)zParticles[i].y;
+        int zs = (int)(zParticles[i].size * 4.0f); // Size modifier (grows as it floats)
+        
+        // Draw a Z using 3 thick lines
+        spr->drawLine(zx - zs, zy - zs, zx + zs, zy - zs, zColor); // Top bar
+        spr->drawLine(zx + zs, zy - zs, zx - zs, zy + zs, zColor); // Diagonal
+        spr->drawLine(zx - zs, zy + zs, zx + zs, zy + zs, zColor); // Bottom bar
+        
+        // Thicken the Z
+        spr->drawLine(zx - zs, zy - zs + 1, zx + zs, zy - zs + 1, zColor); 
+        spr->drawLine(zx + zs - 1, zy - zs, zx - zs - 1, zy + zs, zColor);
+        spr->drawLine(zx + zs + 1, zy - zs, zx - zs + 1, zy + zs, zColor);
+        spr->drawLine(zx - zs, zy + zs - 1, zx + zs, zy + zs - 1, zColor);
+      }
+    }
   }
 }
 

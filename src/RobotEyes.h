@@ -139,6 +139,14 @@ private:
   float panicSweatY = 0.0f;
   bool panicSweatActive = false;
   unsigned long panicSweatTimer = 0;
+  // --- NEW: ASLEEP Zzz PARTICLES ---
+  static const int MAX_ZZZ = 3;
+  struct ZParticle {
+    float x, y, size;
+    unsigned long spawnTime;
+    bool active;
+  } zParticles[MAX_ZZZ];
+  unsigned long zSpawnTimer = 0;
   int panicSweatSide = 1; // which eye side
 
   // --- NEW: NEUTRAL IDLE GAZE ---
