@@ -75,7 +75,7 @@ public:
       cfg.dummy_read_bits  = 1;
       cfg.readable         = false;
       cfg.invert           = false;
-      cfg.rgb_order        = false;
+      cfg.rgb_order        = true;
       cfg.dlen_16bit       = false;
       cfg.bus_shared       = false;
       _panel_instance.config(cfg);
@@ -334,7 +334,9 @@ void loop() {
   bool strongPhysical  = false;
 
   if (totalAccel > 22.0) {                                        
-      if (!hasEmotionOverride) eyes.setEmotion(ANGRY);
+      if (!hasEmotionOverride || eyes.getEmotion() != ANGRY) {
+          eyes.setEmotion(ANGRY);
+      }
       emotionOverrideTimer = millis();
       hasEmotionOverride   = true;
       physicallyMoved = strongPhysical = true;
@@ -468,7 +470,9 @@ void loop() {
       lastInteractionTime = millis();
       if (guardMode) {
           // Physical disturbance in Guard mode triggers Angry warning
-          eyes.setEmotion(ANGRY);
+          if (eyes.getEmotion() != ANGRY) {
+              eyes.setEmotion(ANGRY);
+          }
           emotionOverrideTimer = millis();
           hasEmotionOverride = true;
       } else if (!strongPhysical && (curEmotion == SLEEPY || curEmotion == ASLEEP)) {

@@ -25,6 +25,7 @@ void RobotEyes::init()
   for (int i = 0; i < 3; i++) dizzyTrailAngle[i] = 0;
   for (int i = 0; i < MAX_HEARTS; i++) hearts[i].active = false;
   for (int i = 0; i < MAX_STARS; i++) stars[i].active = false;
+  for (int i = 0; i < MAX_STEAM; i++) steamPuffs[i].active = false;
   firework.active = false;
 }
 
@@ -134,6 +135,10 @@ void RobotEyes::setEmotion(Emotion e)
     angryTwitchAngle = 0;
     angryTwitchTimer = millis() + random(800, 2000);
     easeFactor = 0.2f;
+    for (int i = 0; i < MAX_STEAM; i++) steamPuffs[i].active = false;
+    steamSpawnTimer = millis();
+    targetX = 0;
+    targetY = 0; // intense stare
   }
   else if (e == WARNING_ANIM)
   {
@@ -520,6 +525,8 @@ void RobotEyes::update()
   if (currentEmotion == ANGRY)
   {
     angryTwitchAngle += 0.5f;
+    angerIntensityAngle += 0.2f;
+
     if (!angryTwitching && now > angryTwitchTimer) {
       angryTwitching = true;
       angryTwitchTimer = now + random(1000, 2500);
@@ -531,6 +538,34 @@ void RobotEyes::update()
         angryTwitchOffset = 0;
       }
     }
+
+    // Steam puffs
+    if (now > steamSpawnTimer) {
+      for (int i = 0; i < MAX_STEAM; i++) {
+        if (!steamPuffs[i].active) {
+          steamPuffs[i].active = true;
+          // spawn from sides (ears)
+          int side = (random(2) == 0) ? -1 : 1;
+          steamPuffs[i].x = (side == -1) ? random(10, 30) : random(130, 150);
+          steamPuffs[i].y = 80 + random(0, 15);
+          steamPuffs[i].vy = -((float)random(5, 15) / 10.0f);
+          steamPuffs[i].radius = random(4, 10);
+          steamPuffs[i].alpha = 1.0f;
+          break;
+        }
+      }
+      steamSpawnTimer = now + random(150, 400); // fast steam
+    }
+    for (int i = 0; i < MAX_STEAM; i++) {
+      if (steamPuffs[i].active) {
+        steamPuffs[i].y += steamPuffs[i].vy;
+        steamPuffs[i].radius += 0.1f;
+        steamPuffs[i].alpha -= 0.02f;
+        if (steamPuffs[i].alpha <= 0) steamPuffs[i].active = false;
+      }
+    }
+
+    // Lightning (Removed)
   }
 
   // Normal blink (INNOCENT uses slower blink speed)
@@ -679,6 +714,23 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
   }
 
+  // Background particles for ANGRY (Steam)
+  if (currentEmotion == ANGRY) {
+    uint16_t steamColor = 0xC618; // Light grey
+
+    // Steam puffs
+    for (int i = 0; i < MAX_STEAM; i++) {
+      if (steamPuffs[i].active && steamPuffs[i].alpha > 0) {
+        // approximate alpha by drawing outline if fading
+        if (steamPuffs[i].alpha > 0.5f) {
+          spr->fillCircle((int)steamPuffs[i].x, (int)steamPuffs[i].y, (int)steamPuffs[i].radius, steamColor);
+        } else {
+          spr->drawCircle((int)steamPuffs[i].x, (int)steamPuffs[i].y, (int)steamPuffs[i].radius, steamColor);
+        }
+      }
+    }
+  }
+
   // GUARDING: asymmetric eye sizes for peeking feel
   if (currentEmotion == GUARDING) {
     // Determine which way pupils are panning
@@ -722,6 +774,25 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     int sweatX = sweatEyeX + panicSweatSide * (eyeW / 2 - 4);
     int sweatY = drawY - eyeH / 2 - 6 + (int)panicSweatY;
     spr->fillEllipse(sweatX, sweatY, 3, 5, 0xDEDB); // very light grey
+  }
+
+  // Anger Vein (Anime popping vein symbol) drawn LAST so it overlaps the eye
+  if (currentEmotion == ANGRY) {
+    int cx = centerX + eyeGap + (eyeW / 2) + 5; // Top right of the right eye
+    int cy = drawY - (eyeH / 2) - 5;
+    uint16_t veinColor = 0xF800; // Bright Red
+
+    int size = 9 + (int)(sin(angryTwitchAngle * 2.0f) * 2.0f); // pulsating size 7 to 11
+    int t = 4; // outer red thickness (radius)
+    // Red Cross (Vertical and Horizontal rounded rects)
+    spr->fillRoundRect(cx - size, cy - t, size * 2, t * 2, t, veinColor);
+    spr->fillRoundRect(cx - t, cy - size, t * 2, size * 2, t, veinColor);
+    
+    // Black Cross (Cutout the center to form the 4 distinct corners)
+    int it = 2; // inner black thickness (radius)
+    int is = size - 2;
+    spr->fillRoundRect(cx - is, cy - it, is * 2, it * 2, it, TFT_BLACK);
+    spr->fillRoundRect(cx - it, cy - is, it * 2, is * 2, it, TFT_BLACK);
   }
 }
 
@@ -840,50 +911,66 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
     // Clip top with a shallow black arc to look heavy-lidded
     int lidClipR = eW + 10;
     spr->fillCircle(x, sadY - lidClipR + 8, lidClipR, TFT_BLACK);
-  } else {
-    spr->fillRoundRect(x - eW / 2, y - h / 2, eW, h, eyeR, scleraColor);
-  }
-
-  if (h > 8)
-  {
+  } else if (currentEmotion == ANGRY) {
+    // Narrow eyes
+    int angryH = h - 12; // Narrower
+    if (angryH < 4) angryH = 4;
+    spr->fillRoundRect(x - eW / 2, y - angryH / 2, eW, angryH, eyeR, scleraColor);
+    
+    // Pupils
     int pX = x + (int)curX;
-    int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
+    int pY = constrain(y + (int)curY, y - angryH / 2 + pupilR + 2, y + angryH / 2 - pupilR - 2);
+    int effR = pupilR - 4; // small glaring pupils
+    if (angryH > 8) {
+      spr->fillCircle(pX, pY, effR, TFT_BLACK);
+      spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
+    }
 
-    int effR = pupilR;
-    if (currentEmotion == ANGRY)
-      effR = pupilR - 3;
-    if (currentEmotion == DIZZY)
-      effR = pupilR - 2 + (int)(sin(dizzyAngle) * 2);
-    if (currentEmotion == PANIC)
-      effR = 5; // Small terrified pupils
+    // Deep Furrowed Eyebrow (V-shape clipping the top inner corner)
+    int twitchY = (int)angryTwitchOffset;
+    if (side == -1) {
+      // Left eye brow goes down towards the center (right)
+      spr->fillTriangle(x - eW/2 - 5, y - angryH/2 - 5 + twitchY, 
+                        x + eW/2 + 5, y - angryH/2 - 10 + twitchY, 
+                        x + eW/2 + 5, y + angryH/2 - 10 + twitchY, TFT_BLACK);
+    } else {
+      // Right eye brow goes down towards the center (left)
+      spr->fillTriangle(x + eW/2 + 5, y - angryH/2 - 5 + twitchY, 
+                        x - eW/2 - 5, y - angryH/2 - 10 + twitchY, 
+                        x - eW/2 - 5, y + angryH/2 - 10 + twitchY, TFT_BLACK);
+    }
+  } else {
+    // Standard rendering
+    spr->fillRoundRect(x - eW / 2, y - h / 2, eW, h, eyeR, scleraColor);
+    if (h > 8)
+    {
+      int pX = x + (int)curX;
+      int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
 
-    // DIZZY: spiral ghost trail
-    if (currentEmotion == DIZZY) {
-      for (int t = 0; t < 3; t++) {
-        int gX = x + (int)(sin(dizzyTrailAngle[t]) * 10.0f);
-        int gY = y + (int)(cos(dizzyTrailAngle[t]) * 10.0f);
-        int gR = effR - (t + 1) * 2;
-        if (gR > 1) spr->drawCircle(gX, gY, gR, 0x4208); // very dark grey ghost
+      int effR = pupilR;
+      if (currentEmotion == DIZZY)
+        effR = pupilR - 2 + (int)(sin(dizzyAngle) * 2);
+      if (currentEmotion == PANIC)
+        effR = 5; // Small terrified pupils
+
+      // DIZZY: spiral ghost trail
+      if (currentEmotion == DIZZY) {
+        for (int t = 0; t < 3; t++) {
+          int gX = x + (int)(sin(dizzyTrailAngle[t]) * 10.0f);
+          int gY = y + (int)(cos(dizzyTrailAngle[t]) * 10.0f);
+          int gR = effR - (t + 1) * 2;
+          if (gR > 1) spr->drawCircle(gX, gY, gR, 0x4208); // very dark grey ghost
+        }
+      }
+
+      spr->fillCircle(pX, pY, effR, TFT_BLACK);
+      spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
+
+      // PANIC: concentric ring around pupil
+      if (currentEmotion == PANIC) {
+        spr->drawCircle(pX, pY, effR + 3, 0x8410); // dark grey ring
+        spr->drawCircle(pX, pY, effR + 6, 0x4208); // darker outer ring
       }
     }
-
-    spr->fillCircle(pX, pY, effR, TFT_BLACK);
-    spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
-
-    // PANIC: concentric ring around pupil
-    if (currentEmotion == PANIC) {
-      spr->drawCircle(pX, pY, effR + 3, 0x8410); // dark grey ring
-      spr->drawCircle(pX, pY, effR + 6, 0x4208); // darker outer ring
-    }
-  }
-
-  // ANGRY: angled brow with twitch
-  if (currentEmotion == ANGRY)
-  {
-    int twitchY = (int)angryTwitchOffset;
-    if (side == -1)
-      spr->fillTriangle(x + eW/2, y - eH/2 + 15 + twitchY, x + eW/2, y - eH/2 - 5 + twitchY, x - 10, y - eH/2 - 5 + twitchY, TFT_BLACK);
-    else
-      spr->fillTriangle(x - eW/2, y - eH/2 + 15 + twitchY, x - eW/2, y - eH/2 - 5 + twitchY, x + 10, y - eH/2 - 5 + twitchY, TFT_BLACK);
   }
 }

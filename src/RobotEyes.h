@@ -119,11 +119,21 @@ private:
   unsigned long sadTearTimer = 0;
   float sadLidAngle = 0.0f; // droopy top lid
 
-  // --- NEW: ANGRY TWITCH ---
+  // --- NEW: ANGRY TWITCH & PARTICLES ---
   float angryTwitchAngle = 0.0f;
   float angryTwitchOffset = 0.0f;
   unsigned long angryTwitchTimer = 0;
   bool angryTwitching = false;
+
+  static const int MAX_STEAM = 8;
+  struct SteamPuff {
+    float x, y, vy, radius;
+    float alpha;
+    bool active;
+  } steamPuffs[MAX_STEAM];
+  unsigned long steamSpawnTimer = 0;
+
+  float angerIntensityAngle = 0.0f; // For radiating lines/dots
 
   // --- NEW: PANIC SWEAT ---
   float panicSweatY = 0.0f;
