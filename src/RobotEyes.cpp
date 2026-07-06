@@ -281,21 +281,22 @@ void RobotEyes::update()
       for (int i = 0; i < MAX_ZZZ; i++) {
         if (!zParticles[i].active) {
           zParticles[i].active = true;
-          zParticles[i].x = 135; // top right
-          zParticles[i].y = 40;
+          zParticles[i].x = 80; // middle of the screen
+          zParticles[i].y = 64; // middle of the screen
           zParticles[i].size = 0.5f;
           zParticles[i].spawnTime = now;
           break;
         }
       }
-      zSpawnTimer = now + random(1500, 2500);
+      zSpawnTimer = now + random(1200, 1800); // reduced frequency to increase gap
     }
     for (int i = 0; i < MAX_ZZZ; i++) {
       if (zParticles[i].active) {
         zParticles[i].y -= 0.4f;
         zParticles[i].size += 0.01f;
-        zParticles[i].x += sin((now - zParticles[i].spawnTime) * 0.003f) * 0.6f;
-        if (zParticles[i].y < -20) zParticles[i].active = false;
+        // Drift rightwards to disappear at top right, while still swaying
+        zParticles[i].x += 0.3f + sin((now - zParticles[i].spawnTime) * 0.003f) * 0.4f;
+        if (zParticles[i].y < -20 || zParticles[i].x > 180) zParticles[i].active = false;
       }
     }
 
