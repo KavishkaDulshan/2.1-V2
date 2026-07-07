@@ -68,6 +68,7 @@ private:
   unsigned long lastHappyBlinkTime = 0;
   int happyBlinkInterval = 4000;
   float happyEyeWidthPulse = 0.0; // breathing swell
+  float happyStarAngle = 0.0f;
 
   // Background Hearts (Happy)
   static const int MAX_HEARTS = 5;

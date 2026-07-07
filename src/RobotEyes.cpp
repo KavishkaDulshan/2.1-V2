@@ -356,6 +356,7 @@ void RobotEyes::update()
     happyBounceAngle += 0.15f;
     happyBounceY = sin(happyBounceAngle) * 3.0f;
     happyEyeWidthPulse = sin(happyBounceAngle * 0.5f) * 2.0f; // breathing swell
+    happyStarAngle += 0.15f; // Orbit speed
     if (!happyIsBlinking && (now - lastHappyBlinkTime > (unsigned long)happyBlinkInterval))
     {
       happyIsBlinking = true;
@@ -853,6 +854,19 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     int mY = constrain(drawY + eyeH / 2 + 8, mR, 127 - mR);
     spr->fillCircle(centerX, mY, mR, TFT_WHITE);
     spr->fillRect(centerX - mR, mY - mR, mR * 2 + 1, mR, TFT_BLACK);
+
+    // Orbiting Star around the top of the eyes
+    int orbitRx = 50;
+    int orbitRy = 15;
+    int starX = centerX + (int)(cos(happyStarAngle) * orbitRx);
+    int starY = drawY - 35 + (int)(sin(happyStarAngle) * orbitRy);
+    
+    // Star tail (trailing slightly behind)
+    int tailX = centerX + (int)(cos(happyStarAngle - 0.4f) * orbitRx);
+    int tailY = drawY - 35 + (int)(sin(happyStarAngle - 0.4f) * orbitRy);
+    spr->drawLine(starX, starY, tailX, tailY, 0xFFE0); // Yellow tail
+    
+    drawRealStar(spr, starX, starY, 4, 0xFFE0); // Yellow star
   }
 
   // Panic sweat drop
@@ -938,7 +952,7 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
 
       int chBaseX = x + side * (rawW / 2 - 6);
       int chY     = y + happyH / 2 + 6;
-      uint16_t pinkColor = 0xF80F; // Bright Pink
+      uint16_t pinkColor = 0xFDDF; // Lighter Pink (to contrast with hearts)
       for (int i = 0; i < 3; i++) {
         spr->fillCircle(chBaseX + side * i * 4, chY, 2, pinkColor);
       }
