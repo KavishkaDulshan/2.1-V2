@@ -271,8 +271,7 @@ void RobotEyes::update()
       targetX = sin(guardScanAngle) * 12.0f;
       targetY = 8.0f; // keep eyes lowered slightly
     }
-    blinkState = 0.0f;
-    return;
+    // Allow fallthrough so the global blink timer updates blinkState for GUARDING
   }
 
   // --- ASLEEP ANIMATION ---
@@ -829,9 +828,9 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     leftScale  = constrain(leftScale,  0.80f, 1.20f);
     rightScale = constrain(rightScale, 0.80f, 1.20f);
     int leftW  = (int)(eyeW * leftScale);
-    int leftH  = (int)(eyeH * 0.85f * leftScale);
+    int leftH  = (int)(eyeH * leftScale);
     int rightW = (int)(eyeW * rightScale);
-    int rightH = (int)(eyeH * 0.85f * rightScale);
+    int rightH = (int)(eyeH * rightScale);
     drawEye(spr, centerX - eyeGap, drawY, -1, leftW, leftH);
     drawEye(spr, centerX + eyeGap, drawY,  1, rightW, rightH);
   } else {
@@ -1003,8 +1002,8 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
       int pX = x + (int)curX;
       int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
 
-      // Large pulsing dilated pupil (not slit)
-      int effR = 12 + (int)(sin(guardPupilPulseAngle) * 3);
+      // Large pulsing dilated pupil (not slit). Never shrinks below pupilR.
+      int effR = pupilR + (int)(sin(guardPupilPulseAngle) + 1.0f);
       spr->fillCircle(pX, pY, effR, TFT_BLACK);
       spr->fillCircle(pX - 3, pY - 3, 2, TFT_WHITE);
       spr->fillCircle(pX + 3, pY + 2, 1, TFT_WHITE);
