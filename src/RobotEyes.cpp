@@ -927,18 +927,20 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
 
     if (happyH > 10 && effectiveBlink < 0.6f)
     {
-      int pX = x + 1;
-      int pY = y - happyH / 6;
-      int pR = 9;
-      pY = constrain(pY, y - happyH / 2 + pR + 2, y + happyH / 2 - pR - 2);
+      int pR = 16; // Larger than idle 14 for extra joy
+      int pX = x + (int)curX;
+      int pY = constrain(y + (int)curY, y - happyH / 2 + pR + 2, y + happyH / 2 - pR - 2);
+      
       spr->fillCircle(pX, pY, pR, TFT_BLACK);
-      spr->fillCircle(pX - 3, pY - 4, 3, TFT_WHITE);
-      spr->fillCircle(pX + 4, pY + 2, 1, TFT_WHITE);
+      // Extra large happy highlights
+      spr->fillCircle(pX - 4, pY - 5, 4, TFT_WHITE);
+      spr->fillCircle(pX + 5, pY + 3, 2, TFT_WHITE);
 
       int chBaseX = x + side * (rawW / 2 - 6);
       int chY     = y + happyH / 2 + 6;
+      uint16_t pinkColor = 0xF80F; // Bright Pink
       for (int i = 0; i < 3; i++) {
-        spr->fillCircle(chBaseX + side * i * 4, chY, 2, TFT_WHITE);
+        spr->fillCircle(chBaseX + side * i * 4, chY, 2, pinkColor);
       }
     }
     return;
