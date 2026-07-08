@@ -602,40 +602,96 @@ void RobotEyes::update()
     // Lightning (Removed)
   }
 
-  // Normal blink (INNOCENT uses slower blink speed)
+  // Normal blink & Double Blink (INNOCENT uses slower blink speed)
   float blinkSpeed = (currentEmotion == INNOCENT) ? 0.08f : 0.25f;
-  if (!isBlinking && (now - lastBlinkTime > (unsigned long)blinkInterval))
+  if (!isBlinking && !isDoubleBlinking && (now - lastBlinkTime > (unsigned long)blinkInterval))
   {
-    isBlinking = true;
+    if (random(100) < 15 && currentEmotion != INNOCENT && currentEmotion != DIZZY) {
+      isDoubleBlinking = true;
+      doubleBlinkPhase = 1;
+    } else {
+      isBlinking = true;
+    }
     blinkInterval = random(2000, 6000);
   }
-  if (isBlinking)
-  {
-    blinkState += blinkSpeed;
-    if (blinkState >= 1.0f)
-    {
-      blinkState = 1.0f;
-      isBlinking = false;
-      lastBlinkTime = now;
+
+  if (isDoubleBlinking) {
+    float dbSpeed = blinkSpeed * 0.8f; // 20% slower than normal blink
+    if (doubleBlinkPhase == 1) { // closing 1
+      blinkState += dbSpeed;
+      if (blinkState >= 1.0f) { blinkState = 1.0f; doubleBlinkPhase = 2; }
+    } else if (doubleBlinkPhase == 2) { // opening 1
+      blinkState -= dbSpeed;
+      if (blinkState <= 0.3f) { blinkState = 0.3f; doubleBlinkPhase = 3; }
+    } else if (doubleBlinkPhase == 3) { // closing 2
+      blinkState += dbSpeed;
+      if (blinkState >= 1.0f) { blinkState = 1.0f; doubleBlinkPhase = 4; }
+    } else if (doubleBlinkPhase == 4) { // opening 2
+      blinkState -= dbSpeed;
+      if (blinkState <= 0) {
+        blinkState = 0;
+        isDoubleBlinking = false;
+        doubleBlinkPhase = 0;
+        lastBlinkTime = now;
+      }
     }
-  }
-  else if (blinkState > 0)
-  {
-    blinkState -= blinkSpeed;
-    if (blinkState < 0)
-      blinkState = 0;
+  } else {
+    if (isBlinking)
+    {
+      blinkState += blinkSpeed;
+      if (blinkState >= 1.0f)
+      {
+        blinkState = 1.0f;
+        isBlinking = false;
+        lastBlinkTime = now;
+      }
+    }
+    else if (blinkState > 0)
+    {
+      blinkState -= blinkSpeed;
+      if (blinkState < 0)
+        blinkState = 0;
+    }
   }
 
-  // --- NEUTRAL: Idle gaze wander (only when MPU is not active) ---
-  if (currentEmotion == NEUTRAL && !mpuActive)
+  // --- NEUTRAL: Idle gaze wander & Effects ---
+  if (currentEmotion == NEUTRAL)
   {
-    if (now > idleGazeTimer) {
-      idleTargetX = (float)random(-8, 9);
-      idleTargetY = (float)random(-4, 5);
-      idleGazeTimer = now + random(1500, 4000);
+    idleHoverAngle += 0.03f;
+    
+    // Fireflies
+    if (now > nextFireflyTimer) {
+      for (int i=0; i<MAX_FIREFLIES; i++) {
+        if (!fireflies[i].active) {
+          fireflies[i].active = true;
+          fireflies[i].x = random(10, 150);
+          fireflies[i].y = random(80, 140);
+          fireflies[i].vx = (random(-10, 10) / 20.0f);
+          fireflies[i].vy = -(random(5, 12) / 20.0f);
+          fireflies[i].alpha = 1.0f;
+          break;
+        }
+      }
+      nextFireflyTimer = now + random(500, 2000);
     }
-    targetX += (idleTargetX - targetX) * 0.02f;
-    targetY += (idleTargetY - targetY) * 0.02f;
+    for (int i=0; i<MAX_FIREFLIES; i++) {
+      if (fireflies[i].active) {
+        fireflies[i].x += fireflies[i].vx;
+        fireflies[i].y += fireflies[i].vy;
+        fireflies[i].alpha -= 0.005f;
+        if (fireflies[i].alpha <= 0 || fireflies[i].y < -5) fireflies[i].active = false;
+      }
+    }
+
+    if (!mpuActive) {
+      if (now > idleGazeTimer) {
+        idleTargetX = (float)random(-8, 9);
+        idleTargetY = (float)random(-4, 5);
+        idleGazeTimer = now + random(1500, 4000);
+      }
+      targetX += (idleTargetX - targetX) * 0.02f;
+      targetY += (idleTargetY - targetY) * 0.02f;
+    }
   }
 }
 
@@ -660,6 +716,27 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   if (currentEmotion == SLEEPY || currentEmotion == ASLEEP)
   {
     drawY = centerY + (int)sleepBreathY;
+  }
+  else if (currentEmotion == NEUTRAL)
+  {
+    drawY = centerY + (int)(sin(idleHoverAngle) * 2.0f);
+    
+    // Draw Fireflies
+    for (int i=0; i<MAX_FIREFLIES; i++) {
+      if (fireflies[i].active) {
+        int fx = (int)fireflies[i].x;
+        int fy = (int)fireflies[i].y;
+        uint16_t fColor = (fireflies[i].alpha > 0.5f) ? 0xFFE0 : 0x7BE0; // Yellow-green
+        spr->drawPixel(fx, fy, fColor);
+        // tiny soft glow cross
+        if (fireflies[i].alpha > 0.3f) {
+          spr->drawPixel(fx-1, fy, 0x0A20);
+          spr->drawPixel(fx+1, fy, 0x0A20);
+          spr->drawPixel(fx, fy-1, 0x0A20);
+          spr->drawPixel(fx, fy+1, 0x0A20);
+        }
+      }
+    }
   }
 
   // Draw teardrop (SAD) - behind eyes

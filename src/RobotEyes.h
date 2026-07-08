@@ -42,11 +42,23 @@ private:
 
   Emotion currentEmotion = NEUTRAL;
 
-  // Normal Blink
+  // Normal Blink & Double Blink
   unsigned long lastBlinkTime = 0;
   int blinkInterval = 3000;
   bool isBlinking = false;
   float blinkState = 0.0;
+  bool isDoubleBlinking = false;
+  int doubleBlinkPhase = 0; // 0=none, 1=closing, 2=opening, 3=closing2, 4=opening2
+  
+  // IDLE Hover & Background Effects
+  float idleHoverAngle = 0.0f;
+  
+  static const int MAX_FIREFLIES = 6;
+  struct Firefly {
+    float x, y, vx, vy, alpha;
+    bool active;
+  } fireflies[MAX_FIREFLIES];
+  unsigned long nextFireflyTimer = 0;
 
   // Sleepy/Asleep Physics
   float sleepyLidHeight = 0.0;
