@@ -76,10 +76,44 @@ class BleState extends ChangeNotifier {
         }
       }
       
-      notifyListeners();
       return provisionCharacteristic != null;
     } catch (e) {
       debugPrint("Connection error: $e");
+      return false;
+    }
+  }
+
+  Future<bool> connectByMacAddress(String macAddress) async {
+    try {
+      final device = BluetoothDevice.fromId(macAddress);
+      await device.connect(autoConnect: false, timeout: const Duration(seconds: 15));
+      connectedDevice = device;
+      
+      _connSub = device.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          connectedDevice = null;
+          provisionCharacteristic = null;
+          notifyListeners();
+        }
+      });
+
+      // Discover services
+      List<BluetoothService> services = await device.discoverServices();
+      for (var s in services) {
+        if (s.uuid.toString() == serviceUuid) {
+          for (var c in s.characteristics) {
+            if (c.uuid.toString() == charUuid) {
+              provisionCharacteristic = c;
+              break;
+            }
+          }
+        }
+      }
+      
+      notifyListeners();
+      return provisionCharacteristic != null;
+    } catch (e) {
+      debugPrint("Auto-Connection error: $e");
       return false;
     }
   }

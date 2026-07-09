@@ -36,6 +36,7 @@ dependencies:
   provider: ^6.1.2
   permission_handler: ^11.3.1
   mqtt_client: ^10.2.2
+  shared_preferences: ^2.5.5
 
 dev_dependencies:
   flutter_test:

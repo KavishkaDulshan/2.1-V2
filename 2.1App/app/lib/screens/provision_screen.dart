@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/ble_state.dart';
+import '../models/ble_state.dart';
+import '../services/preferences_service.dart';
 import 'dashboard_screen.dart';
-
 class ProvisionScreen extends StatefulWidget {
   const ProvisionScreen({super.key});
 
@@ -83,6 +84,15 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
                 setState(() => _isSending = false);
                 
                 if (success && context.mounted) {
+                  // Save the pairing to preferences
+                  if (device != null) {
+                    await PreferencesService.saveRobotPairing(
+                      device.remoteId.str,
+                      _ssidController.text,
+                      _passController.text,
+                    );
+                  }
+
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
                       content: const Text('Credentials Sent! The robot will now connect to Wi-Fi.'),
