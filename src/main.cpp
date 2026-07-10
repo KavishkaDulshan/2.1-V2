@@ -23,7 +23,7 @@ int   daylightOffset_sec = 0;
 bool  timeConfigured = false;
 
 String weatherCity = "London,UK";
-#define OPENWEATHER_API_KEY "73f7cee7e8bec1c75b735dace19ac166"
+#define OPENWEATHER_API_KEY "weather API key here"
 
 time_t targetAlarmTime = 0;
 unsigned long pomodoroEndTime = 0;
