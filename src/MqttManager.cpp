@@ -3,6 +3,12 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "RobotEyes.h"
+#include "RobotEyes.h"
+
+extern time_t targetAlarmTime;
+extern unsigned long pomodoroEndTime;
+extern bool alarmTriggered;
+extern String weatherCity;
 
 // We use a free public MQTT broker for prototyping
 const char* mqtt_server = "broker.emqx.io";
@@ -46,10 +52,53 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
                 else if (emotionStr == "dizzy") eyes->setEmotion(DIZZY);
                 else if (emotionStr == "panic") eyes->setEmotion(PANIC);
                 else if (emotionStr == "innocent") eyes->setEmotion(INNOCENT);
-                else eyes->setEmotion(NEUTRAL);
+                else if (emotionStr == "clock") { eyes->setEmotion(CLOCK_MODE); eyes->baseEmotion = CLOCK_MODE; }
+                else { eyes->setEmotion(NEUTRAL); eyes->baseEmotion = NEUTRAL; }
             }
         }
-        // Could easily add other commands like {"color": "#FF0000"} here in the future
+        
+        if (doc.containsKey("mode")) {
+            String modeStr = doc["mode"].as<String>();
+            if (eyes != nullptr) {
+                if (modeStr == "clock") { eyes->setEmotion(CLOCK_MODE); eyes->baseEmotion = CLOCK_MODE; }
+                else { eyes->setEmotion(NEUTRAL); eyes->baseEmotion = NEUTRAL; }
+            }
+        }
+
+        if (doc.containsKey("timer")) {
+            int mins = doc["timer"].as<int>();
+            if (mins == 0) {
+                pomodoroEndTime = 0; // stop timer
+                if (eyes != nullptr) eyes->timerActive = false;
+            } else {
+                pomodoroEndTime = millis() + (mins * 60 * 1000);
+            }
+        }
+
+        if (doc.containsKey("alarm_h") && doc.containsKey("alarm_m")) {
+            int h = doc["alarm_h"].as<int>();
+            int m = doc["alarm_m"].as<int>();
+            struct tm timeinfo;
+            if (getLocalTime(&timeinfo, 10)) {
+                timeinfo.tm_hour = h;
+                timeinfo.tm_min = m;
+                timeinfo.tm_sec = 0;
+                targetAlarmTime = mktime(&timeinfo);
+                
+                time_t now;
+                time(&now);
+                if (targetAlarmTime < now) {
+                    targetAlarmTime += 24 * 3600; // Next day if already passed
+                }
+                alarmTriggered = false;
+                Serial.printf("Alarm set for %02d:%02d\n", h, m);
+            }
+        }
+        
+        if (doc.containsKey("city")) {
+            weatherCity = doc["city"].as<String>();
+            Serial.println("Weather city updated to: " + weatherCity);
+        }
     } else {
         Serial.println("Failed to parse MQTT JSON");
     }

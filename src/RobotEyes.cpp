@@ -708,10 +708,56 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->drawString("WARNING", 80, wY + WARNING_FRAME_HEIGHT + 10);
     return;
   }
-
+  
   int centerX = 80 + (int)eyeOffsetX;
   int centerY = 64 + (int)eyeOffsetY;
   int drawY = centerY;
+
+  if (currentEmotion == ALARM_RINGING) {
+    // Pulse background (bright morning colors)
+    int pulse = (int)((sin(millis() / 50.0f) + 1.0f) * 127.0f);
+    uint16_t bgColor = spr->color565(255, 100 + pulse, 0); 
+    spr->fillScreen(bgColor);
+    
+    // Bounce eyes wildly
+    int bounceY = (int)(sin(millis() / 20.0f) * 10.0f);
+    int cY = 64 + bounceY;
+    
+    // Draw the eyes (passing parameters directly)
+    drawEye(spr, 80 - eyeGap, cY, -1, eyeW, eyeH);
+    drawEye(spr, 80 + eyeGap, cY,  1, eyeW, eyeH);
+    
+    // Draw time in center over eyes
+    spr->setTextFont(4); 
+    spr->setTextSize(1);
+    spr->setTextDatum(textdatum_t::middle_center);
+    spr->setTextColor(TFT_WHITE, bgColor);
+    spr->drawString(timeString, 80, 20);
+    return;
+  }
+
+  if (currentEmotion == CLOCK_MODE) {
+    // Draw Digital Clock
+    spr->setTextColor(TFT_WHITE, TFT_BLACK);
+    
+    // Draw glowing shadow behind text
+    spr->setTextDatum(textdatum_t::middle_center);
+    
+    // Use a large font
+    spr->setTextFont(4); 
+    spr->setTextSize(2);
+    
+    // Glow effect (draw multiple times with low color)
+    spr->setTextColor(0x0410, TFT_BLACK);
+    spr->drawString(timeString, 80 - 2, 64 - 2);
+    spr->drawString(timeString, 80 + 2, 64 + 2);
+    spr->drawString(timeString, 80 - 2, 64 + 2);
+    spr->drawString(timeString, 80 + 2, 64 - 2);
+    
+    // Main text
+    spr->setTextColor(TFT_CYAN, TFT_BLACK);
+    spr->drawString(timeString, 80, 64);
+  } else {
 
   if (currentEmotion == SLEEPY || currentEmotion == ASLEEP)
   {
@@ -923,6 +969,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       drawEye(spr, centerX + eyeGap, drawY,  1);
     }
   }
+  
+  } // End of non-clock rendering
 
   // Smile mouth for HAPPY
   if (currentEmotion == HAPPY)
@@ -990,11 +1038,30 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         
         // Thicken the Z
         spr->drawLine(zx - zs, zy - zs + 1, zx + zs, zy - zs + 1, zColor); 
-        spr->drawLine(zx + zs - 1, zy - zs, zx - zs - 1, zy + zs, zColor);
-        spr->drawLine(zx + zs + 1, zy - zs, zx - zs + 1, zy + zs, zColor);
-        spr->drawLine(zx - zs, zy + zs - 1, zx + zs, zy + zs - 1, zColor);
       }
     }
+  }
+
+  // --- DRAW TIMER PROGRESS (POMODORO) ---
+  if (timerActive && timerProgress > 0.0f) {
+    // Sleek progress bar at the bottom edge (4px thick)
+    int barWidth = (int)(160.0f * timerProgress);
+    spr->fillRect(0, 124, barWidth, 4, TFT_GREEN);
+  }
+
+  // --- DRAW WEATHER INFO ---
+  if (weatherIcon != "") {
+    spr->setTextFont(1);
+    spr->setTextSize(1);
+    spr->setTextDatum(textdatum_t::top_right);
+    spr->setTextColor(TFT_WHITE, TFT_BLACK); // Make it bright white to ensure visibility
+    
+    String wStr = String((int)weatherTemp) + "C ";
+    if (weatherIcon == "sun") wStr += "O"; // Use O as sun symbol in basic font
+    else if (weatherIcon == "cloud") wStr += "C"; // C as cloud
+    else if (weatherIcon == "rain") wStr += "R"; // R as rain
+    
+    spr->drawString(wStr, 155, 5);
   }
 }
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/ble_state.dart';
 import '../services/preferences_service.dart';
-import 'dashboard_screen.dart';
+import 'main_layout.dart';
 import 'scan_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -47,7 +47,7 @@ class _SplashScreenState extends State<SplashScreen> {
           ble.disconnect(); // Clean up BLE once provisioned
           if (!mounted) return;
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const DashboardScreen()),
+            MaterialPageRoute(builder: (_) => const MainLayout()),
           );
           return;
         } else {

@@ -70,4 +70,17 @@ class MqttState extends ChangeNotifier {
     _client!.publishMessage('robot21/commands/master', MqttQos.atLeastOnce, builder.payload!);
     print('Published: $payload');
   }
+
+  void publish(String topic, String payload) {
+    if (_client == null || _client!.connectionStatus!.state != MqttConnectionState.connected) {
+      print('Cannot send command, not connected');
+      return;
+    }
+
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(payload);
+
+    _client!.publishMessage(topic, MqttQos.atLeastOnce, builder.payload!);
+    print('Published to $topic: $payload');
+  }
 }

@@ -16,7 +16,9 @@ enum Emotion
   WAKEUP,
   GUARDING,
   PANIC,
-  WARNING_ANIM
+  WARNING_ANIM,
+  CLOCK_MODE,
+  ALARM_RINGING
 };
 
 class RobotEyes
@@ -184,6 +186,16 @@ public:
   void setEmotion(Emotion e);
   void setMpuActive(bool active) { mpuActive = active; }
   Emotion getEmotion() { return currentEmotion; }
+  Emotion baseEmotion = NEUTRAL; // Default mode to return to (NEUTRAL or CLOCK_MODE)
+
+  // --- UTILITY DATA ---
+  String timeString = "00:00";
+  String weatherIcon = ""; // "sun", "cloud", "rain"
+  float weatherTemp = 0.0f;
+  
+  // Timer / Alarm
+  bool timerActive = false;
+  float timerProgress = 0.0f; // 0.0 to 1.0
 
 private:
   void drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride = 0, int hOverride = 0);

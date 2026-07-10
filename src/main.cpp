@@ -12,6 +12,22 @@
 #include "RobotEyes.h"
 #include "BleManager.h"
 #include "MqttManager.h"
+#include <time.h>
+#include <ArduinoJson.h>
+#include <WiFiClient.h>
+
+// --- UTILITY CONFIG ---
+const char* ntpServer = "pool.ntp.org";
+long  gmtOffset_sec = 19800; // Default +5:30 (India)
+int   daylightOffset_sec = 0;
+bool  timeConfigured = false;
+
+String weatherCity = "London,UK";
+#define OPENWEATHER_API_KEY "73f7cee7e8bec1c75b735dace19ac166"
+
+time_t targetAlarmTime = 0;
+unsigned long pomodoroEndTime = 0;
+bool alarmTriggered = false;
 
 // =========================================================================
 // 🛑 DEBUG CONTROL SWITCH
@@ -102,6 +118,7 @@ bool guardMode = false;
 
 TaskHandle_t i2sTaskHandle;
 TaskHandle_t audioTaskHandle;
+TaskHandle_t weatherTaskHandle;
 bool processCameraData();
 
 int16_t audio_buffer[EI_CLASSIFIER_RAW_SAMPLE_COUNT];
@@ -209,6 +226,51 @@ void audioInferenceTask(void *pvParameters) {
   }
 }
 
+void weatherTask(void *pvParameters) {
+    while (true) {
+        if (WiFi.status() == WL_CONNECTED && String(OPENWEATHER_API_KEY) != "YOUR_API_KEY_HERE") {
+            WiFiClient client;
+            if (client.connect("api.openweathermap.org", 80)) {
+                String url = "/data/2.5/weather?q=" + weatherCity + "&units=metric&appid=" + OPENWEATHER_API_KEY;
+                client.println("GET " + url + " HTTP/1.1");
+                client.println("Host: api.openweathermap.org");
+                client.println("Connection: close");
+                client.println();
+                
+                String payload = "";
+                bool headerPassed = false;
+                unsigned long timeout = millis();
+                while (client.connected() && millis() - timeout < 10000) {
+                    if (client.available()) {
+                        String line = client.readStringUntil('\n');
+                        if (line == "\r") {
+                            headerPassed = true;
+                        } else if (headerPassed) {
+                            payload += line;
+                        }
+                        timeout = millis();
+                    }
+                }
+                client.stop();
+
+                if (payload.length() > 0) {
+                    StaticJsonDocument<1024> doc;
+                    if (!deserializeJson(doc, payload)) {
+                        eyes.weatherTemp = doc["main"]["temp"].as<float>();
+                        String mainWeather = doc["weather"][0]["main"].as<String>();
+                        
+                        if (mainWeather == "Clear") eyes.weatherIcon = "sun";
+                        else if (mainWeather == "Rain" || mainWeather == "Drizzle" || mainWeather == "Thunderstorm") eyes.weatherIcon = "rain";
+                        else eyes.weatherIcon = "cloud";
+                    }
+                }
+            }
+        }
+        // Wait 10 minutes before fetching again
+        vTaskDelay(pdMS_TO_TICKS(600000));
+    }
+}
+
 void setup() {
   Serial.begin(115200);
   delay(3000); 
@@ -278,6 +340,9 @@ void setup() {
   // Initialize MQTT Manager
   MqttManager::init(&eyes);
   
+  // Start Weather Task
+  xTaskCreatePinnedToCore(weatherTask, "WeatherTask", 8192, NULL, 1, &weatherTaskHandle, 1);
+  
   lastInteractionTime = millis();
 }
 
@@ -308,6 +373,11 @@ void loop() {
           Serial.println("\nWi-Fi Connected successfully!");
           Serial.print("IP Address: ");
           Serial.println(WiFi.localIP());
+          
+          // Initialize time
+          configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+          timeConfigured = true;
+          Serial.println("NTP Time Sync requested.");
       } else {
           Serial.println("\nFailed to connect to Wi-Fi. Please restart the robot to turn BLE back on and try again.");
       }
@@ -316,6 +386,69 @@ void loop() {
   
   // Process MQTT Messages
   MqttManager::loop();
+
+  // --- TIME & UTILITY LOGIC ---
+  if (timeConfigured) {
+      struct tm timeinfo;
+      if (getLocalTime(&timeinfo, 10)) {
+          char timeStringBuff[10];
+          strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M", &timeinfo);
+          eyes.timeString = String(timeStringBuff);
+          
+          // Check Alarm
+          if (targetAlarmTime != 0) {
+              time_t now;
+              time(&now);
+              if (now >= targetAlarmTime && !alarmTriggered) {
+                  Serial.println("ALARM TRIGGERED!");
+                  eyes.setEmotion(ALARM_RINGING);
+                  eyes.baseEmotion = ALARM_RINGING; // Temporarily force base
+                  hasEmotionOverride = true;
+                  emotionOverrideTimer = millis() + 60000; // Ring for 1 minute
+                  alarmTriggered = true;
+                  targetAlarmTime = 0; // Clear it
+              }
+          }
+      }
+  }
+
+  // Handle Alarm Vibration & Reset
+  if (eyes.getEmotion() == ALARM_RINGING) {
+      // Toggle vibe pin fast
+      digitalWrite(VIBE_PIN, (millis() % 200 > 100) ? HIGH : LOW);
+      if (millis() > emotionOverrideTimer) {
+          // Timeout finished
+          eyes.baseEmotion = NEUTRAL;
+          hasEmotionOverride = false;
+          digitalWrite(VIBE_PIN, LOW);
+      }
+  } else {
+      digitalWrite(VIBE_PIN, LOW);
+  }
+
+  // Check Pomodoro Timer
+  if (pomodoroEndTime != 0) {
+      unsigned long nowMs = millis();
+      if (nowMs < pomodoroEndTime) {
+          eyes.timerActive = true;
+          // Calculate progress (Assuming 25 min max for now, or we need to store start time. 
+          // For simplicity, just make it a generic active state, or track total duration)
+          // Let's just track it generically or we can set timerProgress from MqttManager
+          eyes.timerProgress = 1.0f - ((float)(pomodoroEndTime - nowMs) / (25 * 60 * 1000.0f)); 
+          if (eyes.timerProgress < 0.0f) eyes.timerProgress = 0.0f;
+          if (eyes.timerProgress > 1.0f) eyes.timerProgress = 1.0f;
+      } else {
+          Serial.println("TIMER FINISHED!");
+          eyes.timerActive = false;
+          eyes.timerProgress = 0.0f;
+          pomodoroEndTime = 0;
+          eyes.setEmotion(HAPPY);
+          hasEmotionOverride = true;
+          emotionOverrideTimer = millis();
+      }
+  } else {
+      eyes.timerActive = false;
+  }
 
   bool cameraDetected = processCameraData();
   
@@ -491,7 +624,7 @@ void loop() {
   
   if (innocentOverride && !isTouched) {
       if (millis() - innocentReleaseTime > 3000) {
-          eyes.setEmotion(NEUTRAL);
+          eyes.setEmotion(eyes.baseEmotion);
           innocentOverride   = false;
           hasEmotionOverride = false;
       }
@@ -502,13 +635,13 @@ void loop() {
       if (guardMode) {
           eyes.setEmotion(GUARDING); // Return to Guarding!
       } else {
-          eyes.setEmotion(NEUTRAL);
+          eyes.setEmotion(eyes.baseEmotion);
       }
       hasEmotionOverride = false;
   }
 
   // Idle fallback logic (only if not guarding and no overrides)
-  if (!hasEmotionOverride && !isTouched && !innocentOverride && !guardMode) {
+  if (!hasEmotionOverride && !isTouched && !innocentOverride && !guardMode && eyes.baseEmotion != CLOCK_MODE) {
       unsigned long idleTime = millis() - lastInteractionTime;
       if      (idleTime > 20000 && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(ASLEEP);
       else if (idleTime > 10000 && eyes.getEmotion() != SLEEPY && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(SLEEPY);
@@ -549,9 +682,9 @@ void loop() {
   } else if (curEmotion == ASLEEP) {
       unsigned long sp = millis() % 3500;
       if      (sp < 200) analogWrite(VIBE_PIN, (int)(sp / 200.0f * 65));
-      else if (sp < 400) analogWrite(VIBE_PIN, (int)((400 - sp) / 200.0f * 65));
+      else if (sp < 300) analogWrite(VIBE_PIN, (int)((300 - sp) / 150.0f * 90));
       else               analogWrite(VIBE_PIN, 0);
-  } else {
+  } else if (curEmotion != ALARM_RINGING) {
       analogWrite(VIBE_PIN, 0);
   }
 

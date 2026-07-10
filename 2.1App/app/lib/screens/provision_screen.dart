@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/ble_state.dart';
-import '../models/ble_state.dart';
 import '../services/preferences_service.dart';
-import 'dashboard_screen.dart';
+import 'main_layout.dart';
 class ProvisionScreen extends StatefulWidget {
   const ProvisionScreen({super.key});
 
@@ -95,12 +94,13 @@ class _ProvisionScreenState extends State<ProvisionScreen> {
 
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: const Text('Credentials Sent! The robot will now connect to Wi-Fi.'),
+                      content: const Text('Credentials Sent!'),
                       action: SnackBarAction(
                         label: 'Go to Dashboard',
                         onPressed: () {
+                          if (!context.mounted) return;
                           Navigator.of(context).pushReplacement(
-                            MaterialPageRoute(builder: (context) => const DashboardScreen()),
+                            MaterialPageRoute(builder: (context) => const MainLayout()),
                           );
                         },
                       ),
