@@ -9,6 +9,7 @@ extern time_t targetAlarmTime;
 extern unsigned long pomodoroEndTime;
 extern bool alarmTriggered;
 extern String weatherCity;
+extern TaskHandle_t weatherTaskHandle;
 
 // We use a free public MQTT broker for prototyping
 const char* mqtt_server = "broker.emqx.io";
@@ -98,6 +99,12 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
         if (doc.containsKey("city")) {
             weatherCity = doc["city"].as<String>();
             Serial.println("Weather city updated to: " + weatherCity);
+            if (eyes != nullptr) {
+                eyes->weatherIcon = "loading";
+            }
+            if (weatherTaskHandle != NULL) {
+                xTaskNotifyGive(weatherTaskHandle);
+            }
         }
     } else {
         Serial.println("Failed to parse MQTT JSON");

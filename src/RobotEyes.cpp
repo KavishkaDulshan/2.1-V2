@@ -1058,10 +1058,19 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->setTextDatum(textdatum_t::top_right);
     spr->setTextColor(TFT_WHITE, TFT_BLACK); // Make it bright white to ensure visibility
     
-    String wStr = String((int)weatherTemp) + "C ";
-    if (weatherIcon == "sun") wStr += "O"; // Use O as sun symbol in basic font
-    else if (weatherIcon == "cloud") wStr += "C"; // C as cloud
-    else if (weatherIcon == "rain") wStr += "R"; // R as rain
+    String wStr;
+    if (weatherIcon == "loading") {
+        int spin = (millis() / 200) % 4;
+        if (spin == 0) wStr = " - ";
+        else if (spin == 1) wStr = " \\ ";
+        else if (spin == 2) wStr = " | ";
+        else if (spin == 3) wStr = " / ";
+    } else {
+        wStr = String((int)weatherTemp) + "C ";
+        if (weatherIcon == "sun") wStr += "O"; // Use O as sun symbol in basic font
+        else if (weatherIcon == "cloud") wStr += "C"; // C as cloud
+        else if (weatherIcon == "rain") wStr += "R"; // R as rain
+    }
     
     spr->drawString(wStr, 155, 5);
   }

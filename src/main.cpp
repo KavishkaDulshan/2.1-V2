@@ -300,11 +300,13 @@ void weatherTask(void *pvParameters) {
         }
 
         // Retry quickly until data is fetched, then wait 10 minutes
-        if (eyes.weatherIcon != "") {
-            vTaskDelay(pdMS_TO_TICKS(600000));
-        } else {
-            vTaskDelay(pdMS_TO_TICKS(15000));
+        uint32_t waitTime = 15000;
+        if (eyes.weatherIcon != "" && eyes.weatherIcon != "loading") {
+            waitTime = 600000;
         }
+        
+        // Wait for next fetch or a notification to fetch immediately
+        ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(waitTime));
     }
 }
 
