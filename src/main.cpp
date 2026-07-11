@@ -434,7 +434,8 @@ void loop() {
           char timeStringBuff[10];
           strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M", &timeinfo);
           eyes.timeString = String(timeStringBuff);
-          
+          eyes.clockHour  = timeinfo.tm_hour;
+
           // Check Alarm
           if (targetAlarmTime != 0) {
               time_t now;

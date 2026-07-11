@@ -177,6 +177,31 @@ private:
   bool innocentFlicking = false;
   float innocentFlickTarget = 0.0f;
 
+  // --- CLOCK BACKGROUND PARTICLES ---
+  static const int MAX_RAIN_DROPS = 20;
+  struct RainDrop {
+    float x, y, speed;
+    int len;
+    bool active;
+  } rainDrops[MAX_RAIN_DROPS];
+
+  static const int MAX_CLOCK_STARS = 15;
+  struct ClockStar {
+    float x, y;
+    float twinkleAngle;
+    float twinkleSpeed;
+    uint8_t size;
+  } clockStars[MAX_CLOCK_STARS];
+
+  static const int MAX_BG_CLOUDS = 3;
+  struct BgCloud {
+    float x, y, speed;
+    uint8_t alpha; // dimmed
+  } bgClouds[MAX_BG_CLOUDS];
+
+  bool clockBgInitialized = false;
+  int  clockBgHour = -1; // track when to re-init background
+
 public:
   void init();
   void update();
@@ -190,6 +215,7 @@ public:
 
   // --- UTILITY DATA ---
   String timeString = "00:00";
+  int    clockHour  = 12; // 0-23 for sky color logic
   String weatherIcon = ""; // "sun", "cloud", "rain"
   float weatherTemp = 0.0f;
   String weatherCondition = ""; // e.g. "Clear", "Rain"

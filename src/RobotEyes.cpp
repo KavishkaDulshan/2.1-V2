@@ -740,65 +740,246 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->setTextColor(TFT_WHITE, TFT_BLACK);
     spr->drawString(timeString, 80, 26);
   } else if (currentEmotion == CLOCK_MODE) {
-    // CLOCK MODE DESIGN (Stacked Layout)
     extern String weatherCity;
-    
-    // Background gradient or simple clear (already cleared in main draw loop)
-    
-    // 1. Top Section: Location
+
+    // ===== STEP 0: Lazy-init background particles =====
+    if (!clockBgInitialized) {
+        clockBgInitialized = true;
+        // Scatter stars randomly
+        for (int i = 0; i < MAX_CLOCK_STARS; i++) {
+            clockStars[i].x           = random(0, 160);
+            clockStars[i].y           = random(0, 128);
+            clockStars[i].twinkleAngle = (float)(random(0, 628)) / 100.0f;
+            clockStars[i].twinkleSpeed = 0.03f + (float)(random(0, 50)) / 1000.0f;
+            clockStars[i].size        = random(1, 3);
+        }
+        // Scatter background clouds (drifting horizontally)
+        for (int i = 0; i < MAX_BG_CLOUDS; i++) {
+            bgClouds[i].x     = (float)random(0, 200);
+            bgClouds[i].y     = (float)random(8, 50);
+            bgClouds[i].speed = 0.08f + (float)(random(0, 10)) / 100.0f;
+            bgClouds[i].alpha = 60 + random(0, 40); // 60-100 (out of 255) = subtle
+        }
+        // Spawn rain drops
+        for (int i = 0; i < MAX_RAIN_DROPS; i++) {
+            rainDrops[i].x      = random(0, 160);
+            rainDrops[i].y      = random(-30, 128);
+            rainDrops[i].speed  = 1.8f + (float)(random(0, 120)) / 100.0f;
+            rainDrops[i].len    = random(4, 9);
+            rainDrops[i].active = true;
+        }
+    }
+
+    // ===== STEP 1: Sky background color based on hour =====
+    uint16_t skyColor;
+    int h = clockHour;
+    if (h >= 6 && h < 9) {
+        // Sunrise: soft orange-pink
+        skyColor = 0xC2C6; // warm peach
+    } else if (h >= 9 && h < 17) {
+        // Daytime: sky blue
+        skyColor = 0x034B; // steel blue
+    } else if (h >= 17 && h < 20) {
+        // Sunset: deep orange
+        skyColor = 0x9203; // dark orange-red
+    } else {
+        // Night: deep navy
+        skyColor = 0x000A; // very dark blue, almost black
+    }
+    spr->fillScreen(skyColor);
+
+    // ===== STEP 2: Animated background particles =====
+    // --- Stars (night time or overcast) ---
+    bool isNight = (h < 6 || h >= 20);
+    bool isCloud = (weatherIcon == "cloud");
+    bool isRain  = (weatherIcon == "rain");
+    bool isSun   = (weatherIcon == "sun" || weatherIcon == "loading" || weatherIcon == "");
+
+    if (isNight || isCloud) {
+        for (int i = 0; i < MAX_CLOCK_STARS; i++) {
+            clockStars[i].twinkleAngle += clockStars[i].twinkleSpeed;
+            float brightness = 0.4f + 0.6f * (0.5f + 0.5f * sin(clockStars[i].twinkleAngle));
+            uint8_t bv = (uint8_t)(brightness * 200.0f);
+            uint16_t sc = ((bv & 0xF8) << 8) | ((bv & 0xFC) << 3) | (bv >> 3);
+            int sx = (int)clockStars[i].x;
+            int sy = (int)clockStars[i].y;
+            if (clockStars[i].size > 1) {
+                spr->fillCircle(sx, sy, 1, sc);
+            } else {
+                spr->drawPixel(sx, sy, sc);
+            }
+        }
+    }
+
+    // --- Drifting background clouds (day/cloud/rain) ---
+    if (!isNight || isCloud || isRain) {
+        for (int i = 0; i < MAX_BG_CLOUDS; i++) {
+            bgClouds[i].x += bgClouds[i].speed;
+            if (bgClouds[i].x > 200) bgClouds[i].x = -60;
+            int cx = (int)bgClouds[i].x;
+            int cy = (int)bgClouds[i].y;
+            // Muted translucent grey (mix with sky)
+            uint16_t cColor;
+            if (isNight) {
+                cColor = 0x2104; // very dark grey for night clouds
+            } else {
+                cColor = 0xB5F7; // very light grey (dim white)
+            }
+            // Cartoon cloud: series of overlapping circles (3 bumps)
+            int r1 = 9, r2 = 7, r3 = 6; // different bump radii
+            spr->fillCircle(cx,      cy,      r1, cColor); // center big
+            spr->fillCircle(cx - 11, cy + 3,  r2, cColor); // left
+            spr->fillCircle(cx + 11, cy + 3,  r2, cColor); // right
+            spr->fillCircle(cx - 6,  cy - 5,  r3, cColor); // top-left
+            spr->fillCircle(cx + 6,  cy - 5,  r3, cColor); // top-right
+            // Fill bottom rectangle to make flat underbelly
+            spr->fillRect(cx - 17, cy + 2, 34, 6, cColor);
+        }
+    }
+
+    // --- Falling rain streaks ---
+    if (isRain) {
+        uint16_t rainColor = 0x3EFF; // light blue
+        for (int i = 0; i < MAX_RAIN_DROPS; i++) {
+            if (!rainDrops[i].active) continue;
+            rainDrops[i].y += rainDrops[i].speed;
+            if (rainDrops[i].y > 130) {
+                rainDrops[i].y  = (float)random(-20, 0);
+                rainDrops[i].x  = (float)random(0, 160);
+            }
+            int rx = (int)rainDrops[i].x;
+            int ry = (int)rainDrops[i].y;
+            spr->drawLine(rx, ry, rx - 1, ry + rainDrops[i].len, rainColor);
+        }
+    }
+
+    // --- Sun rays (clear daytime) ---
+    if (isSun && !isNight) {
+        float sunAngle = (float)(millis() % 3600) * 0.001f; // slow rotation
+        int sunX = 140, sunY = 14; // top-right corner
+        int innerR = 10, outerR = 16;
+        uint16_t sunYellow = 0xFFE0;
+        uint16_t sunOrange = 0xFD20;
+        // Glow circle
+        spr->fillCircle(sunX, sunY, innerR + 2, sunOrange);
+        spr->fillCircle(sunX, sunY, innerR,     sunYellow);
+        // 8 rays rotating slowly
+        for (int r = 0; r < 8; r++) {
+            float ang = sunAngle + r * 0.7854f; // π/4
+            int x1 = sunX + (int)(cos(ang) * (innerR + 4));
+            int y1 = sunY + (int)(sin(ang) * (innerR + 4));
+            int x2 = sunX + (int)(cos(ang) * outerR);
+            int y2 = sunY + (int)(sin(ang) * outerR);
+            spr->drawLine(x1, y1, x2, y2, sunYellow);
+        }
+    }
+
+    // ===== STEP 3: Top section – City Name =====
     spr->setTextFont(2);
     spr->setTextSize(1);
     spr->setTextDatum(textdatum_t::top_center);
-    spr->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
-    // Replace commas or %20 for display
+    spr->setTextColor(0xFFFF, 0x0000);
     String displayCity = weatherCity;
     displayCity.replace("%20", " ");
+    // Draw a subtle text shadow
+    spr->setTextColor(0x2104, 0x0000);
+    spr->drawString(displayCity, 80 + 1, 5 + 1);
+    spr->setTextColor(TFT_LIGHTGREY, 0x0000);
     spr->drawString(displayCity, 80, 5);
 
-    // 2. Middle Section: Time (Using custom color)
-    spr->setTextFont(4); 
+    // ===== STEP 4: Middle section – Time =====
+    spr->setTextFont(4);
     spr->setTextSize(2);
     spr->setTextDatum(textdatum_t::middle_center);
-    
-    // Extract RGB from clockColor to create a darker glow
+
+    // Extract RGB from clockColor to create glow
     uint8_t r = (clockColor >> 11) & 0x1F;
     uint8_t g = (clockColor >> 5) & 0x3F;
     uint8_t b = clockColor & 0x1F;
-    uint16_t glowColor = ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2); // 25% brightness
-    
-    // Glow effect
-    spr->setTextColor(glowColor, TFT_BLACK);
-    spr->drawString(timeString, 80 - 2, 60 - 2);
-    spr->drawString(timeString, 80 + 2, 60 + 2);
-    spr->drawString(timeString, 80 - 2, 60 + 2);
-    spr->drawString(timeString, 80 + 2, 60 - 2);
-    
-    // Main Time text
-    spr->setTextColor(clockColor, TFT_BLACK);
-    spr->drawString(timeString, 80, 60);
+    uint16_t glowColor = ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2);
 
-    // 3. Bottom Section: Weather
+    // Glow shadow
+    spr->setTextColor(glowColor, 0x0000);
+    spr->drawString(timeString, 80 - 2, 58 - 2);
+    spr->drawString(timeString, 80 + 2, 58 + 2);
+    spr->drawString(timeString, 80 - 2, 58 + 2);
+    spr->drawString(timeString, 80 + 2, 58 - 2);
+
+    // Main time
+    spr->setTextColor(clockColor, 0x0000);
+    spr->drawString(timeString, 80, 58);
+
+    // ===== STEP 5: Bottom section – Icon + Condition + Temperature =====
     if (weatherIcon != "") {
-        spr->setTextFont(2);
-        spr->setTextSize(1);
-        spr->setTextDatum(textdatum_t::bottom_center);
-        spr->setTextColor(TFT_WHITE, TFT_BLACK);
-        
-        String bottomStr = "";
+        // Draw a subtle separator line
+        spr->drawFastHLine(10, 94, 140, 0x4208);
+
         if (weatherIcon == "loading") {
-            int spin = (millis() / 200) % 4;
-            if (spin == 0) bottomStr = "Fetching Weather -";
-            else if (spin == 1) bottomStr = "Fetching Weather \\";
-            else if (spin == 2) bottomStr = "Fetching Weather |";
-            else if (spin == 3) bottomStr = "Fetching Weather /";
+            spr->setTextFont(2);
+            spr->setTextSize(1);
+            spr->setTextDatum(textdatum_t::middle_center);
+            spr->setTextColor(0xAD75, 0x0000);
+            int spin = (millis() / 300) % 4;
+            const char* spinChars[] = {"-", "\\", "|", "/"};
+            spr->drawString(String("Loading ") + spinChars[spin], 80, 111);
         } else {
-            String tempStr = String((int)weatherTemp) + "C";
-            bottomStr = weatherCondition + "  |  " + tempStr;
+            // === Draw weather icon (native vector) on the left ===
+            int iconX = 12; // left anchor
+            int iconY = 100; // center Y of bottom bar
+
+            if (weatherIcon == "sun") {
+                // Sun: glowing circle + 8 rays
+                spr->fillCircle(iconX + 10, iconY, 8, 0xFFE0);
+                for (int ri = 0; ri < 8; ri++) {
+                    float ang = ri * 0.7854f;
+                    int x1 = iconX + 10 + (int)(cos(ang) * 10);
+                    int y1 = iconY       + (int)(sin(ang) * 10);
+                    int x2 = iconX + 10 + (int)(cos(ang) * 13);
+                    int y2 = iconY       + (int)(sin(ang) * 13);
+                    spr->drawLine(x1, y1, x2, y2, 0xFD20);
+                }
+            } else if (weatherIcon == "cloud") {
+                // Cartoon cloud: overlapping circles
+                spr->fillCircle(iconX + 10, iconY + 1,  7, 0xFFFF);
+                spr->fillCircle(iconX + 3,  iconY + 4,  5, 0xFFFF);
+                spr->fillCircle(iconX + 17, iconY + 4,  5, 0xFFFF);
+                spr->fillCircle(iconX + 6,  iconY - 3,  5, 0xFFFF);
+                spr->fillCircle(iconX + 14, iconY - 3,  5, 0xFFFF);
+                spr->fillRect(iconX, iconY + 1, 20, 7, 0xFFFF); // flat base
+            } else if (weatherIcon == "rain") {
+                // Rain cloud + drops
+                uint16_t cloudC = 0xAD75; // grey
+                spr->fillCircle(iconX + 10, iconY - 3,  7, cloudC);
+                spr->fillCircle(iconX + 3,  iconY,      5, cloudC);
+                spr->fillCircle(iconX + 17, iconY,      5, cloudC);
+                spr->fillRect(iconX, iconY - 2, 20, 7, cloudC);
+                // Rain drops
+                uint16_t dropC = 0x3EFF; // light blue
+                spr->fillCircle(iconX + 5,  iconY + 10, 2, dropC);
+                spr->drawLine(iconX + 5, iconY + 6, iconX + 4, iconY + 9, dropC);
+                spr->fillCircle(iconX + 12, iconY + 11, 2, dropC);
+                spr->drawLine(iconX + 12, iconY + 7, iconX + 11, iconY + 10, dropC);
+                spr->fillCircle(iconX + 19, iconY + 10, 2, dropC);
+                spr->drawLine(iconX + 19, iconY + 6, iconX + 18, iconY + 9, dropC);
+            }
+
+            // === Weather text: Condition + Temperature ===
+            spr->setTextFont(2);
+            spr->setTextSize(1);
+            spr->setTextDatum(textdatum_t::middle_left);
+            spr->setTextColor(TFT_WHITE, 0x0000);
+            String condStr = weatherCondition;
+            if (condStr.length() > 10) condStr = condStr.substring(0, 10); // truncate
+            spr->drawString(condStr, iconX + 27, iconY);
+
+            // Temperature on the right
+            spr->setTextDatum(textdatum_t::middle_right);
+            spr->setTextColor(0xFFE0, 0x0000); // yellow temperature
+            String tempStr = String((int)weatherTemp) + (char)247 + "C"; // degree symbol
+            spr->drawString(tempStr, 155, iconY);
         }
-        
-        spr->drawString(bottomStr, 80, 120);
     }
-    
+
     return;
   }
 
