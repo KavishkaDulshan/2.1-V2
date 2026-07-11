@@ -232,7 +232,7 @@ void weatherTask(void *pvParameters) {
             WiFiClient client;
             if (client.connect("api.openweathermap.org", 80)) {
                 String url = "/data/2.5/weather?q=" + weatherCity + "&units=metric&appid=" + OPENWEATHER_API_KEY;
-                client.println("GET " + url + " HTTP/1.1");
+                client.println("GET " + url + " HTTP/1.0");
                 client.println("Host: api.openweathermap.org");
                 client.println("Connection: close");
                 client.println();
@@ -240,30 +240,44 @@ void weatherTask(void *pvParameters) {
                 String payload = "";
                 bool headerPassed = false;
                 unsigned long timeout = millis();
-                while (client.connected() && millis() - timeout < 10000) {
+                
+                while (client.connected() || client.available()) {
                     if (client.available()) {
                         String line = client.readStringUntil('\n');
-                        if (line == "\r") {
-                            headerPassed = true;
-                        } else if (headerPassed) {
+                        if (!headerPassed) {
+                            if (line == "\r" || line == "") {
+                                headerPassed = true;
+                            }
+                        } else {
                             payload += line;
+                            payload += "\n";
                         }
                         timeout = millis();
                     }
+                    if (millis() - timeout > 5000) break;
                 }
                 client.stop();
 
                 if (payload.length() > 0) {
+                    Serial.println("Weather API Payload received: " + payload);
                     StaticJsonDocument<1024> doc;
-                    if (!deserializeJson(doc, payload)) {
+                    DeserializationError error = deserializeJson(doc, payload);
+                    if (!error) {
                         eyes.weatherTemp = doc["main"]["temp"].as<float>();
                         String mainWeather = doc["weather"][0]["main"].as<String>();
+                        Serial.println("Parsed Weather: " + mainWeather + ", Temp: " + String(eyes.weatherTemp));
                         
                         if (mainWeather == "Clear") eyes.weatherIcon = "sun";
                         else if (mainWeather == "Rain" || mainWeather == "Drizzle" || mainWeather == "Thunderstorm") eyes.weatherIcon = "rain";
                         else eyes.weatherIcon = "cloud";
+                    } else {
+                        Serial.println("Weather JSON Parsing failed: " + String(error.c_str()));
                     }
+                } else {
+                    Serial.println("Weather API returned empty payload");
                 }
+            } else {
+                Serial.println("Weather API Connection failed");
             }
         }
         // Wait 10 minutes before fetching again
@@ -412,18 +426,13 @@ void loop() {
       }
   }
 
-  // Handle Alarm Vibration & Reset
+  // Handle Alarm Reset
   if (eyes.getEmotion() == ALARM_RINGING) {
-      // Toggle vibe pin fast
-      digitalWrite(VIBE_PIN, (millis() % 200 > 100) ? HIGH : LOW);
       if (millis() > emotionOverrideTimer) {
           // Timeout finished
           eyes.baseEmotion = NEUTRAL;
           hasEmotionOverride = false;
-          digitalWrite(VIBE_PIN, LOW);
       }
-  } else {
-      digitalWrite(VIBE_PIN, LOW);
   }
 
   // Check Pomodoro Timer
@@ -529,8 +538,8 @@ void loop() {
           }
       } else if (keyword_cmd_sleep) {
           if (!guardMode) { // Ignore sleep command if guarding
-              // Trick the idle timer into thinking 10 seconds have passed so it plays SLEEPY naturally
-              lastInteractionTime = millis() - 10001;
+              // Trick the idle timer into thinking 120 seconds have passed so it plays SLEEPY naturally then falls ASLEEP 5 seconds later
+              lastInteractionTime = millis() - 120001;
               hasEmotionOverride = false; 
           }
       } else if (keyword_cmd_guard) {
@@ -643,8 +652,8 @@ void loop() {
   // Idle fallback logic (only if not guarding and no overrides)
   if (!hasEmotionOverride && !isTouched && !innocentOverride && !guardMode && eyes.baseEmotion != CLOCK_MODE) {
       unsigned long idleTime = millis() - lastInteractionTime;
-      if      (idleTime > 20000 && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(ASLEEP);
-      else if (idleTime > 10000 && eyes.getEmotion() != SLEEPY && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(SLEEPY);
+      if      (idleTime > 125000 && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(ASLEEP); // Sleepy for 5s, then ASLEEP
+      else if (idleTime > 120000 && eyes.getEmotion() != SLEEPY && eyes.getEmotion() != ASLEEP)  eyes.setEmotion(SLEEPY);
   }
 
   curEmotion = eyes.getEmotion();
@@ -684,7 +693,13 @@ void loop() {
       if      (sp < 200) analogWrite(VIBE_PIN, (int)(sp / 200.0f * 65));
       else if (sp < 300) analogWrite(VIBE_PIN, (int)((300 - sp) / 150.0f * 90));
       else               analogWrite(VIBE_PIN, 0);
-  } else if (curEmotion != ALARM_RINGING) {
+  } else if (curEmotion == ALARM_RINGING) {
+      unsigned long t = millis() % 1000;
+      if      (t < 200) analogWrite(VIBE_PIN, 255);
+      else if (t < 300) analogWrite(VIBE_PIN, 0);
+      else if (t < 500) analogWrite(VIBE_PIN, 255);
+      else              analogWrite(VIBE_PIN, 0);
+  } else {
       analogWrite(VIBE_PIN, 0);
   }
 

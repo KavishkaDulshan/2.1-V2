@@ -714,29 +714,32 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   int drawY = centerY;
 
   if (currentEmotion == ALARM_RINGING) {
-    // Pulse background (bright morning colors)
-    int pulse = (int)((sin(millis() / 50.0f) + 1.0f) * 127.0f);
-    uint16_t bgColor = spr->color565(255, 100 + pulse, 0); 
-    spr->fillScreen(bgColor);
+    drawY = centerY + (int)(sin(millis() / 20.0f) * 4.0f);
     
-    // Bounce eyes wildly
-    int bounceY = (int)(sin(millis() / 20.0f) * 10.0f);
-    int cY = 64 + bounceY;
+    int bellX = 80;
+    int bellY = 18;
+    int shake = (int)(sin(millis() / 30.0f) * 3.0f);
+    bellX += shake;
     
-    // Draw the eyes (passing parameters directly)
-    drawEye(spr, 80 - eyeGap, cY, -1, eyeW, eyeH);
-    drawEye(spr, 80 + eyeGap, cY,  1, eyeW, eyeH);
+    // Draw Bell
+    spr->fillCircle(bellX, bellY, 10, TFT_ORANGE);
+    spr->fillRect(bellX - 10, bellY, 21, 12, TFT_BLACK); // cut off the bottom half
+    spr->fillRect(bellX - 12, bellY - 2, 25, 4, TFT_ORANGE); // Base rim
+    spr->fillCircle(bellX, bellY + 2, 3, TFT_YELLOW); // clapper
     
-    // Draw time in center over eyes
-    spr->setTextFont(4); 
+    // Draw ringing lines
+    if ((millis() / 100) % 2 == 0) {
+       spr->drawLine(bellX - 15, bellY - 8, bellX - 22, bellY - 12, TFT_WHITE);
+       spr->drawLine(bellX + 15, bellY - 8, bellX + 22, bellY - 12, TFT_WHITE);
+    }
+    
+    // Draw the time text nicely below the bell
+    spr->setTextFont(2);
     spr->setTextSize(1);
-    spr->setTextDatum(textdatum_t::middle_center);
-    spr->setTextColor(TFT_WHITE, bgColor);
-    spr->drawString(timeString, 80, 20);
-    return;
-  }
-
-  if (currentEmotion == CLOCK_MODE) {
+    spr->setTextDatum(textdatum_t::top_center);
+    spr->setTextColor(TFT_WHITE, TFT_BLACK);
+    spr->drawString(timeString, 80, 26);
+  } else if (currentEmotion == CLOCK_MODE) {
     // Draw Digital Clock
     spr->setTextColor(TFT_WHITE, TFT_BLACK);
     
@@ -757,7 +760,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     // Main text
     spr->setTextColor(TFT_CYAN, TFT_BLACK);
     spr->drawString(timeString, 80, 64);
-  } else {
+    return;
+  }
 
   if (currentEmotion == SLEEPY || currentEmotion == ASLEEP)
   {
@@ -969,8 +973,6 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       drawEye(spr, centerX + eyeGap, drawY,  1);
     }
   }
-  
-  } // End of non-clock rendering
 
   // Smile mouth for HAPPY
   if (currentEmotion == HAPPY)
@@ -1221,7 +1223,7 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
       int effR = pupilR;
       if (currentEmotion == DIZZY)
         effR = pupilR - 2 + (int)(sin(dizzyAngle) * 2);
-      if (currentEmotion == PANIC)
+      if (currentEmotion == PANIC || currentEmotion == ALARM_RINGING)
         effR = 5; // Small terrified pupils
 
       // DIZZY: spiral ghost trail
@@ -1238,7 +1240,7 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
       spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
 
       // PANIC: concentric ring around pupil
-      if (currentEmotion == PANIC) {
+      if (currentEmotion == PANIC || currentEmotion == ALARM_RINGING) {
         spr->drawCircle(pX, pY, effR + 3, 0x8410); // dark grey ring
         spr->drawCircle(pX, pY, effR + 6, 0x4208); // darker outer ring
       }

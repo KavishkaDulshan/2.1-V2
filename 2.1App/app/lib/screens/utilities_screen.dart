@@ -48,6 +48,51 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
     });
   }
 
+  Future<void> _showCustomTimerDialog(BuildContext context) async {
+    final TextEditingController customTimeController = TextEditingController();
+    return showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1B4B),
+          title: const Text('Custom Timer', style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: customTimeController,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: "Enter minutes",
+              hintStyle: TextStyle(color: Colors.white54),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            ),
+            FilledButton(
+              onPressed: () {
+                final int? min = int.tryParse(customTimeController.text);
+                if (min != null && min > 0) {
+                  if (mounted) {
+                    context.read<MqttState>().publish("robot21/commands/master", '{"timer": $min}');
+                    _startLocalTimer(min);
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Started ${min}m timer')));
+                  }
+                }
+                Navigator.pop(context);
+              },
+              style: FilledButton.styleFrom(backgroundColor: Colors.blueAccent),
+              child: const Text('Start'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _selectAlarmTime(BuildContext context) async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
@@ -159,6 +204,12 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                             },
                             style: FilledButton.styleFrom(backgroundColor: Colors.teal),
                             child: const Text('5m Break'),
+                          ),
+                          FilledButton.icon(
+                            onPressed: () => _showCustomTimerDialog(context),
+                            style: FilledButton.styleFrom(backgroundColor: Colors.blueAccent),
+                            icon: const Icon(Icons.timer, size: 18),
+                            label: const Text('Custom'),
                           ),
                         ],
                       ),
