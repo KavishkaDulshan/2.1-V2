@@ -10,6 +10,7 @@
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
 
 #include "RobotEyes.h"
+#include <ArduinoJson.h>
 #include "BleManager.h"
 #include "MqttManager.h"
 #include <time.h>
@@ -23,7 +24,7 @@ int   daylightOffset_sec = 0;
 bool  timeConfigured = false;
 
 String weatherCity = "London,UK";
-#define OPENWEATHER_API_KEY "weather API key here"
+#define OPENWEATHER_API_KEY "90b5371f426c8985201312f80bfe9eb4"
 
 time_t targetAlarmTime = 0;
 unsigned long pomodoroEndTime = 0;
@@ -228,60 +229,82 @@ void audioInferenceTask(void *pvParameters) {
 
 void weatherTask(void *pvParameters) {
     while (true) {
-        if (WiFi.status() == WL_CONNECTED && String(OPENWEATHER_API_KEY) != "YOUR_API_KEY_HERE") {
+        if (WiFi.status() == WL_CONNECTED) {
             WiFiClient client;
-            if (client.connect("api.openweathermap.org", 80)) {
-                String url = "/data/2.5/weather?q=" + weatherCity + "&units=metric&appid=" + OPENWEATHER_API_KEY;
-                client.println("GET " + url + " HTTP/1.0");
-                client.println("Host: api.openweathermap.org");
-                client.println("Connection: close");
-                client.println();
-                
-                String payload = "";
-                bool headerPassed = false;
-                unsigned long timeout = millis();
-                
-                while (client.connected() || client.available()) {
-                    if (client.available()) {
-                        String line = client.readStringUntil('\n');
-                        if (!headerPassed) {
-                            if (line == "\r" || line == "") {
-                                headerPassed = true;
-                            }
-                        } else {
-                            payload += line;
-                            payload += "\n";
-                        }
-                        timeout = millis();
+            client.setTimeout(10);
+            if (client.connect("api.openweathermap.org", 80, 5000)) {
+                // Build a fully URL-encoded query string character by character
+                String safeCity = "";
+                for (unsigned int i = 0; i < weatherCity.length(); i++) {
+                    char c = weatherCity[i];
+                    if (isAlphaNumeric(c) || c == '-' || c == '_' || c == '.' || c == ',') {
+                        safeCity += c;
+                    } else {
+                        safeCity += '%';
+                        safeCity += String(c, HEX);
                     }
-                    if (millis() - timeout > 5000) break;
+                }
+
+                String request = "GET /data/2.5/weather?q=" + safeCity + "&units=metric&appid=" + String(OPENWEATHER_API_KEY) + " HTTP/1.1\r\n";
+                request += "Host: api.openweathermap.org\r\n";
+                request += "Connection: close\r\n";
+                request += "\r\n";
+                client.print(request);
+
+                // Wait for data
+                unsigned long timeout = millis();
+                while (client.available() == 0) {
+                    if (millis() - timeout > 5000) {
+                        Serial.println("Weather client timeout");
+                        client.stop();
+                        break;
+                    }
+                }
+
+                // Skip HTTP headers — read until blank line
+                while (client.available()) {
+                    String line = client.readStringUntil('\n');
+                    line.trim();
+                    if (line.length() == 0) break; // blank line = end of headers
+                }
+
+                // Read the JSON body
+                String payload = "";
+                while (client.available()) {
+                    payload += (char)client.read();
                 }
                 client.stop();
+                payload.trim();
 
-                if (payload.length() > 0) {
-                    Serial.println("Weather API Payload received: " + payload);
-                    StaticJsonDocument<1024> doc;
+                Serial.println("Weather payload: " + payload);
+
+                if (payload.length() > 0 && payload.startsWith("{")) {
+                    StaticJsonDocument<2048> doc;
                     DeserializationError error = deserializeJson(doc, payload);
                     if (!error) {
                         eyes.weatherTemp = doc["main"]["temp"].as<float>();
                         String mainWeather = doc["weather"][0]["main"].as<String>();
                         Serial.println("Parsed Weather: " + mainWeather + ", Temp: " + String(eyes.weatherTemp));
-                        
                         if (mainWeather == "Clear") eyes.weatherIcon = "sun";
                         else if (mainWeather == "Rain" || mainWeather == "Drizzle" || mainWeather == "Thunderstorm") eyes.weatherIcon = "rain";
                         else eyes.weatherIcon = "cloud";
                     } else {
-                        Serial.println("Weather JSON Parsing failed: " + String(error.c_str()));
+                        Serial.println("Weather JSON parse error: " + String(error.c_str()));
                     }
                 } else {
-                    Serial.println("Weather API returned empty payload");
+                    Serial.println("Weather: bad payload or not JSON");
                 }
             } else {
-                Serial.println("Weather API Connection failed");
+                Serial.println("Weather: failed to connect");
             }
         }
-        // Wait 10 minutes before fetching again
-        vTaskDelay(pdMS_TO_TICKS(600000));
+
+        // Retry quickly until data is fetched, then wait 10 minutes
+        if (eyes.weatherIcon != "") {
+            vTaskDelay(pdMS_TO_TICKS(600000));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(15000));
+        }
     }
 }
 
