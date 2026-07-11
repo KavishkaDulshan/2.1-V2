@@ -288,6 +288,7 @@ void weatherTask(void *pvParameters) {
                         if (mainWeather == "Clear") eyes.weatherIcon = "sun";
                         else if (mainWeather == "Rain" || mainWeather == "Drizzle" || mainWeather == "Thunderstorm") eyes.weatherIcon = "rain";
                         else eyes.weatherIcon = "cloud";
+                        eyes.weatherCondition = mainWeather;
                     } else {
                         Serial.println("Weather JSON parse error: " + String(error.c_str()));
                     }

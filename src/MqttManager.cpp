@@ -96,6 +96,19 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
             }
         }
         
+        if (doc.containsKey("clock_color")) {
+            String hexStr = doc["clock_color"].as<String>();
+            if (hexStr.startsWith("#")) hexStr = hexStr.substring(1);
+            long rgb = strtol(hexStr.c_str(), NULL, 16);
+            uint8_t r = (rgb >> 16) & 0xFF;
+            uint8_t g = (rgb >> 8) & 0xFF;
+            uint8_t b = rgb & 0xFF;
+            if (eyes != nullptr) {
+                eyes->clockColor = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+                Serial.printf("Clock color updated to: #%06X\n", (uint32_t)rgb);
+            }
+        }
+        
         if (doc.containsKey("city")) {
             weatherCity = doc["city"].as<String>();
             Serial.println("Weather city updated to: " + weatherCity);

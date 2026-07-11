@@ -192,6 +192,8 @@ public:
   String timeString = "00:00";
   String weatherIcon = ""; // "sun", "cloud", "rain"
   float weatherTemp = 0.0f;
+  String weatherCondition = ""; // e.g. "Clear", "Rain"
+  uint16_t clockColor = 0xFFFF; // Default to white (TFT_WHITE)
   
   // Timer / Alarm
   bool timerActive = false;

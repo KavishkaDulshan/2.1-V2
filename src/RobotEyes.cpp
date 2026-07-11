@@ -740,26 +740,65 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->setTextColor(TFT_WHITE, TFT_BLACK);
     spr->drawString(timeString, 80, 26);
   } else if (currentEmotion == CLOCK_MODE) {
-    // Draw Digital Clock
-    spr->setTextColor(TFT_WHITE, TFT_BLACK);
+    // CLOCK MODE DESIGN (Stacked Layout)
+    extern String weatherCity;
     
-    // Draw glowing shadow behind text
-    spr->setTextDatum(textdatum_t::middle_center);
+    // Background gradient or simple clear (already cleared in main draw loop)
     
-    // Use a large font
+    // 1. Top Section: Location
+    spr->setTextFont(2);
+    spr->setTextSize(1);
+    spr->setTextDatum(textdatum_t::top_center);
+    spr->setTextColor(TFT_LIGHTGREY, TFT_BLACK);
+    // Replace commas or %20 for display
+    String displayCity = weatherCity;
+    displayCity.replace("%20", " ");
+    spr->drawString(displayCity, 80, 5);
+
+    // 2. Middle Section: Time (Using custom color)
     spr->setTextFont(4); 
     spr->setTextSize(2);
+    spr->setTextDatum(textdatum_t::middle_center);
     
-    // Glow effect (draw multiple times with low color)
-    spr->setTextColor(0x0410, TFT_BLACK);
-    spr->drawString(timeString, 80 - 2, 64 - 2);
-    spr->drawString(timeString, 80 + 2, 64 + 2);
-    spr->drawString(timeString, 80 - 2, 64 + 2);
-    spr->drawString(timeString, 80 + 2, 64 - 2);
+    // Extract RGB from clockColor to create a darker glow
+    uint8_t r = (clockColor >> 11) & 0x1F;
+    uint8_t g = (clockColor >> 5) & 0x3F;
+    uint8_t b = clockColor & 0x1F;
+    uint16_t glowColor = ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2); // 25% brightness
     
-    // Main text
-    spr->setTextColor(TFT_CYAN, TFT_BLACK);
-    spr->drawString(timeString, 80, 64);
+    // Glow effect
+    spr->setTextColor(glowColor, TFT_BLACK);
+    spr->drawString(timeString, 80 - 2, 60 - 2);
+    spr->drawString(timeString, 80 + 2, 60 + 2);
+    spr->drawString(timeString, 80 - 2, 60 + 2);
+    spr->drawString(timeString, 80 + 2, 60 - 2);
+    
+    // Main Time text
+    spr->setTextColor(clockColor, TFT_BLACK);
+    spr->drawString(timeString, 80, 60);
+
+    // 3. Bottom Section: Weather
+    if (weatherIcon != "") {
+        spr->setTextFont(2);
+        spr->setTextSize(1);
+        spr->setTextDatum(textdatum_t::bottom_center);
+        spr->setTextColor(TFT_WHITE, TFT_BLACK);
+        
+        String bottomStr = "";
+        if (weatherIcon == "loading") {
+            int spin = (millis() / 200) % 4;
+            if (spin == 0) bottomStr = "Fetching Weather -";
+            else if (spin == 1) bottomStr = "Fetching Weather \\";
+            else if (spin == 2) bottomStr = "Fetching Weather |";
+            else if (spin == 3) bottomStr = "Fetching Weather /";
+        } else {
+            String tempStr = String((int)weatherTemp) + "C";
+            bottomStr = weatherCondition + "  |  " + tempStr;
+        }
+        
+        spr->drawString(bottomStr, 80, 120);
+    }
+    
     return;
   }
 
