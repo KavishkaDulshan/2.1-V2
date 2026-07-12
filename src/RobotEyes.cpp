@@ -878,13 +878,12 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->setTextFont(2);
     spr->setTextSize(1);
     spr->setTextDatum(textdatum_t::top_center);
-    spr->setTextColor(0xFFFF, 0x0000);
     String displayCity = weatherCity;
     displayCity.replace("%20", " ");
-    // Draw a subtle text shadow
-    spr->setTextColor(0x2104, 0x0000);
+    // Draw a subtle text shadow (dark, no fill box)
+    spr->setTextColor(0x2104);
     spr->drawString(displayCity, 80 + 1, 5 + 1);
-    spr->setTextColor(TFT_LIGHTGREY, 0x0000);
+    spr->setTextColor(TFT_LIGHTGREY);
     spr->drawString(displayCity, 80, 5);
 
     // ===== STEP 4: Middle section – Time =====
@@ -899,14 +898,14 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     uint16_t glowColor = ((r >> 2) << 11) | ((g >> 2) << 5) | (b >> 2);
 
     // Glow shadow
-    spr->setTextColor(glowColor, 0x0000);
+    spr->setTextColor(glowColor);
     spr->drawString(timeString, 80 - 2, 58 - 2);
     spr->drawString(timeString, 80 + 2, 58 + 2);
     spr->drawString(timeString, 80 - 2, 58 + 2);
     spr->drawString(timeString, 80 + 2, 58 - 2);
 
     // Main time
-    spr->setTextColor(clockColor, 0x0000);
+    spr->setTextColor(clockColor);
     spr->drawString(timeString, 80, 58);
 
     // ===== STEP 5: Bottom section – Icon + Condition + Temperature =====
@@ -918,7 +917,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
             spr->setTextFont(2);
             spr->setTextSize(1);
             spr->setTextDatum(textdatum_t::middle_center);
-            spr->setTextColor(0xAD75, 0x0000);
+            spr->setTextColor(0xAD75);
             int spin = (millis() / 300) % 4;
             const char* spinChars[] = {"-", "\\", "|", "/"};
             spr->drawString(String("Loading ") + spinChars[spin], 80, 111);
@@ -967,14 +966,14 @@ void RobotEyes::draw(LGFX_Sprite *spr)
             spr->setTextFont(2);
             spr->setTextSize(1);
             spr->setTextDatum(textdatum_t::middle_left);
-            spr->setTextColor(TFT_WHITE, 0x0000);
+            spr->setTextColor(TFT_WHITE);
             String condStr = weatherCondition;
             if (condStr.length() > 10) condStr = condStr.substring(0, 10); // truncate
             spr->drawString(condStr, iconX + 27, iconY);
 
             // Temperature on the right
             spr->setTextDatum(textdatum_t::middle_right);
-            spr->setTextColor(0xFFE0, 0x0000); // yellow temperature
+            spr->setTextColor(0xFFE0); // yellow temperature
             String tempStr = String((int)weatherTemp) + (char)247 + "C"; // degree symbol
             spr->drawString(tempStr, 155, iconY);
         }
