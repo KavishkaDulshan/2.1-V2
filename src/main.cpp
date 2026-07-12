@@ -24,6 +24,8 @@ int   daylightOffset_sec = 0;
 bool  timeConfigured = false;
 
 String weatherCity = "London,UK";
+long  weatherTimezoneOffset = 0; // UTC offset in seconds from OpenWeatherMap (e.g. 19800 for IST)
+bool  weatherTimezoneReady = false; // false = use NTP local time, true = use city offset
 #define OPENWEATHER_API_KEY "90b5371f426c8985201312f80bfe9eb4"
 
 time_t targetAlarmTime = 0;
@@ -289,6 +291,13 @@ void weatherTask(void *pvParameters) {
                         else if (mainWeather == "Rain" || mainWeather == "Drizzle" || mainWeather == "Thunderstorm") eyes.weatherIcon = "rain";
                         else eyes.weatherIcon = "cloud";
                         eyes.weatherCondition = mainWeather;
+                        // Parse UTC timezone offset (seconds) from OpenWeatherMap response
+                        if (doc.containsKey("timezone")) {
+                            weatherTimezoneOffset = doc["timezone"].as<long>();
+                            weatherTimezoneReady  = true;
+                            Serial.printf("City timezone offset: %ld seconds (UTC%+.1f)\n",
+                                weatherTimezoneOffset, weatherTimezoneOffset / 3600.0f);
+                        }
                     } else {
                         Serial.println("Weather JSON parse error: " + String(error.c_str()));
                     }
@@ -429,14 +438,26 @@ void loop() {
 
   // --- TIME & UTILITY LOGIC ---
   if (timeConfigured) {
-      struct tm timeinfo;
-      if (getLocalTime(&timeinfo, 10)) {
-          char timeStringBuff[10];
-          strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M", &timeinfo);
-          eyes.timeString = String(timeStringBuff);
-          eyes.clockHour  = timeinfo.tm_hour;
+      // Get UTC time from NTP
+      time_t utcNow;
+      time(&utcNow);
 
-          // Check Alarm
+      // If a city timezone offset has been set, show time for that city.
+      // Otherwise fall back to the device's NTP local time.
+      struct tm displayTime;
+      if (weatherTimezoneReady) {
+          // Manually apply the city's UTC offset to raw UTC epoch
+          time_t cityTime = utcNow + weatherTimezoneOffset;
+          gmtime_r(&cityTime, &displayTime);
+      } else {
+          getLocalTime(&displayTime, 10);
+      }
+
+      char timeStringBuff[10];
+      strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M", &displayTime);
+      eyes.timeString = String(timeStringBuff);
+      eyes.clockHour  = displayTime.tm_hour;
+
           if (targetAlarmTime != 0) {
               time_t now;
               time(&now);
@@ -450,7 +471,6 @@ void loop() {
                   targetAlarmTime = 0; // Clear it
               }
           }
-      }
   }
 
   // Handle Alarm Reset

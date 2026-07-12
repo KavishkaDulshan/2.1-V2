@@ -10,6 +10,7 @@ extern unsigned long pomodoroEndTime;
 extern bool alarmTriggered;
 extern String weatherCity;
 extern TaskHandle_t weatherTaskHandle;
+extern bool weatherTimezoneReady;
 
 // We use a free public MQTT broker for prototyping
 const char* mqtt_server = "broker.emqx.io";
@@ -112,6 +113,7 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
         if (doc.containsKey("city")) {
             weatherCity = doc["city"].as<String>();
             Serial.println("Weather city updated to: " + weatherCity);
+            weatherTimezoneReady = false; // Reset until new timezone is fetched
             if (eyes != nullptr) {
                 eyes->weatherIcon = "loading";
             }
