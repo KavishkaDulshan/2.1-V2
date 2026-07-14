@@ -52,17 +52,23 @@ class _SplashScreenState extends State<SplashScreen> {
           return;
         } else {
           setState(() => _statusMessage = 'Failed to provision. Retrying later.');
+          // Fall back to scan screen after failure
+          await Future.delayed(const Duration(seconds: 2));
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (_) => const ScanScreen()),
+          );
         }
       } else {
-        setState(() => _statusMessage = 'Robot not found nearby.');
+        // BLE failed. This usually means the robot is ALREADY connected to Wi-Fi 
+        // and has shut down its BLE broadcaster to save power.
+        setState(() => _statusMessage = 'Connecting via Wi-Fi/MQTT...');
+        await Future.delayed(const Duration(seconds: 1));
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MainLayout()),
+        );
       }
-      
-      // If it failed to connect or provision, fall back to scan screen after a delay
-      await Future.delayed(const Duration(seconds: 2));
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const ScanScreen()),
-      );
 
     } else {
       // No robot saved, go straight to scan screen
