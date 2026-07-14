@@ -1,7 +1,10 @@
 import 'dart:ui';
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import '../models/mqtt_state.dart';
 
 class UtilitiesScreen extends StatefulWidget {
@@ -16,6 +19,59 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
   
   Timer? _pomodoroTimer;
   int _timeRemaining = 0; // in seconds
+  bool _isClockMode = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedCity();
+  }
+
+  Future<void> _loadSavedCity() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedCity = prefs.getString('weather_city');
+    if (savedCity != null && savedCity.isNotEmpty) {
+      setState(() {
+        _cityController.text = savedCity;
+      });
+      // Delay MQTT publish slightly to ensure MqttState is fully ready
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) {
+          context.read<MqttState>().publish("robot21/commands/master", '{"city": "$savedCity"}');
+        }
+      });
+    }
+  }
+
+  Future<Iterable<String>> _searchCities(String query) async {
+    if (query.length < 2) return const Iterable<String>.empty();
+    try {
+      final response = await http.get(Uri.parse(
+          'http://api.openweathermap.org/geo/1.0/direct?q=$query&limit=5&appid=90b5371f426c8985201312f80bfe9eb4'));
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((item) {
+          final state = item['state'] != null ? ', ${item['state']}' : '';
+          return '${item['name']}$state, ${item['country']}';
+        });
+      }
+    } catch (e) {
+      debugPrint("City search error: $e");
+    }
+    return const Iterable<String>.empty();
+  }
+
+  Future<void> _saveAndSendCity(String city) async {
+    if (city.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('weather_city', city);
+    if (mounted) {
+      context.read<MqttState>().publish("robot21/commands/master", '{"city": "$city"}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Weather set to $city')),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -136,26 +192,18 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                       context,
                       title: 'Clock Mode',
                       icon: Icons.access_time,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          FilledButton.icon(
-                            onPressed: () {
-                              context.read<MqttState>().publish("robot21/commands/master", '{"mode": "clock"}');
-                            },
-                            icon: const Icon(Icons.alarm_on),
-                            label: const Text('Show Clock'),
-                            style: FilledButton.styleFrom(backgroundColor: Colors.blueAccent),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: () {
-                              context.read<MqttState>().publish("robot21/commands/master", '{"mode": "eyes"}');
-                            },
-                            icon: const Icon(Icons.face),
-                            label: const Text('Hide Clock'),
-                            style: OutlinedButton.styleFrom(foregroundColor: Colors.white),
-                          ),
-                        ],
+                      child: SwitchListTile(
+                        title: const Text('Show Clock on Robot', style: TextStyle(color: Colors.white)),
+                        value: _isClockMode,
+                        activeColor: Colors.blueAccent,
+                        contentPadding: EdgeInsets.zero,
+                        onChanged: (bool value) {
+                          setState(() {
+                            _isClockMode = value;
+                          });
+                          final mode = value ? "clock" : "eyes";
+                          context.read<MqttState>().publish("robot21/commands/master", '{"mode": "$mode"}');
+                        },
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -237,32 +285,67 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                       context,
                       title: 'Weather Location',
                       icon: Icons.cloud,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _cityController,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: const InputDecoration(
-                                hintText: 'e.g. London,UK',
-                                hintStyle: TextStyle(color: Colors.white54),
-                                enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
-                                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+                      child: Autocomplete<String>(
+                        initialValue: TextEditingValue(text: _cityController.text),
+                        optionsBuilder: (TextEditingValue textEditingValue) async {
+                          if (textEditingValue.text.length < 2) return const Iterable<String>.empty();
+                          return await _searchCities(textEditingValue.text);
+                        },
+                        onSelected: (String selection) {
+                          _saveAndSendCity(selection);
+                        },
+                        fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
+                          if (_cityController.text.isNotEmpty && controller.text.isEmpty) {
+                            controller.text = _cityController.text;
+                          }
+                          return TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: InputDecoration(
+                              hintText: 'Search city...',
+                              hintStyle: const TextStyle(color: Colors.white54),
+                              enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.white30)),
+                              focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+                              suffixIcon: IconButton(
+                                icon: const Icon(Icons.send, color: Colors.blueAccent),
+                                onPressed: () {
+                                  _saveAndSendCity(controller.text);
+                                },
                               ),
                             ),
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.send, color: Colors.blueAccent),
-                            onPressed: () {
-                              if (_cityController.text.isNotEmpty) {
-                                context.read<MqttState>().publish("robot21/commands/master", '{"city": "${_cityController.text}"}');
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(content: Text('Weather set to ${_cityController.text}')),
-                                );
-                              }
+                            onSubmitted: (String value) {
+                              _saveAndSendCity(value);
                             },
-                          ),
-                        ],
+                          );
+                        },
+                        optionsViewBuilder: (context, onSelected, options) {
+                          return Align(
+                            alignment: Alignment.topLeft,
+                            child: Material(
+                              color: const Color(0xFF1E1B4B),
+                              elevation: 4.0,
+                              borderRadius: BorderRadius.circular(8),
+                              child: SizedBox(
+                                width: 250,
+                                child: ListView.builder(
+                                  padding: EdgeInsets.zero,
+                                  shrinkWrap: true,
+                                  itemCount: options.length,
+                                  itemBuilder: (BuildContext context, int index) {
+                                    final String option = options.elementAt(index);
+                                    return ListTile(
+                                      title: Text(option, style: const TextStyle(color: Colors.white)),
+                                      onTap: () {
+                                        onSelected(option);
+                                      },
+                                    );
+                                  },
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
