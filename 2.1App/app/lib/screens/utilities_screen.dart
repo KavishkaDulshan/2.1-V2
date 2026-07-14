@@ -51,8 +51,7 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
       if (response.statusCode == 200) {
         final List<dynamic> data = jsonDecode(response.body);
         return data.map((item) {
-          final state = item['state'] != null ? ', ${item['state']}' : '';
-          return '${item['name']}$state, ${item['country']}';
+          return '${item['name']},${item['country']}';
         });
       }
     } catch (e) {
