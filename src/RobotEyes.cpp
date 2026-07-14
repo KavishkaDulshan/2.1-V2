@@ -773,29 +773,42 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     // ===== STEP 1: Sky background color based on hour =====
     uint16_t skyColor;
     int h = clockHour;
-    if (h >= 6 && h < 9) {
-        // Sunrise: soft orange-pink
-        skyColor = 0xC2C6; // warm peach
-    } else if (h >= 9 && h < 17) {
-        // Daytime: sky blue
-        skyColor = 0x034B; // steel blue
-    } else if (h >= 17 && h < 20) {
-        // Sunset: deep orange
-        skyColor = 0x9203; // dark orange-red
+    
+    if (h >= 9 && h < 17) {
+        // Daytime: gradient from #085893 (top) to #1576ab (bottom)
+        for (int y = 0; y < 128; y++) {
+            float t = (float)y / 127.0f;
+            uint8_t r = 8 + (uint8_t)(t * (21 - 8));
+            uint8_t g = 88 + (uint8_t)(t * (118 - 88));
+            uint8_t b = 147 + (uint8_t)(t * (171 - 147));
+            spr->drawFastHLine(0, y, 160, spr->color565(r, g, b));
+        }
     } else {
-        // Night: deep navy
-        skyColor = 0x000A; // very dark blue, almost black
+        if (h >= 6 && h < 9) {
+            // Sunrise: steel blue
+            skyColor = 0x034B; 
+        } else if (h >= 17 && h < 20) {
+            // Sunset: dark orange-red
+            skyColor = 0x9203; 
+        } else {
+            // Night: very dark blue
+            skyColor = 0x000A; 
+        }
+        spr->fillScreen(skyColor);
     }
-    spr->fillScreen(skyColor);
 
     // ===== STEP 2: Animated background particles =====
-    // --- Stars (night time or overcast) ---
-    bool isNight = (h < 6 || h >= 20);
     bool isCloud = (weatherIcon == "cloud");
     bool isRain  = (weatherIcon == "rain");
     bool isSun   = (weatherIcon == "sun" || weatherIcon == "loading" || weatherIcon == "");
 
-    if (isNight || isCloud) {
+    // --- Stars (twinkles) ---
+    // Shown at night, in the morning (6-9am), or if cloudy (but NOT in the afternoon 9-5pm)
+    bool isMorning = (h >= 6 && h < 9);
+    bool isAfternoon = (h >= 9 && h < 17);
+    bool isNight = (h < 6 || h >= 20);
+
+    if (isNight || isMorning || (isCloud && !isAfternoon)) {
         for (int i = 0; i < MAX_CLOCK_STARS; i++) {
             clockStars[i].twinkleAngle += clockStars[i].twinkleSpeed;
             float brightness = 0.4f + 0.6f * (0.5f + 0.5f * sin(clockStars[i].twinkleAngle));
@@ -854,7 +867,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
 
     // --- Sun rays (clear daytime) ---
-    if (isSun && !isNight) {
+    // Shown if clear, but ONLY from 9am to 8pm (removed from morning 6-9am)
+    if (isSun && !isNight && !isMorning) {
         float sunAngle = (float)(millis() % 3600) * 0.001f; // slow rotation
         int sunX = 140, sunY = 14; // top-right corner
         int innerR = 10, outerR = 16;
