@@ -18,7 +18,8 @@ enum Emotion
   PANIC,
   WARNING_ANIM,
   CLOCK_MODE,
-  ALARM_RINGING
+  ALARM_RINGING,
+  NOTIFICATION
 };
 
 class RobotEyes
@@ -212,6 +213,14 @@ public:
   void setMpuActive(bool active) { mpuActive = active; }
   Emotion getEmotion() { return currentEmotion; }
   Emotion baseEmotion = NEUTRAL; // Default mode to return to (NEUTRAL or CLOCK_MODE)
+
+  // --- NOTIFICATION MIRRORING ---
+  void triggerNotification(String appName, String sender);
+  String notifAppName = "";
+  String notifSender = "";
+  unsigned long notifTimer = 0;
+  unsigned long notifTimeout = 0;
+  Emotion notifRestoreEmotion = NEUTRAL;
 
   // --- UTILITY DATA ---
   String timeString = "00:00";

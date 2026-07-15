@@ -1,6 +1,6 @@
 # ESP32-S3 Companion Robot (v2.1)
 
-This project runs a companion robot control system on an **ESP32-S3-N16R8** development board. It features dynamic robot eye animations displayed on an OLED monitor, motion sensing (MPU6050), physical/haptic feedback (vibration motor and touch sensor), and a background I2S audio monitoring task.
+This project runs a companion robot control system on an **ESP32-S3-N16R8** development board. It features dynamic robot eye animations displayed on an OLED monitor, motion sensing (MPU6050), physical/haptic feedback (vibration motor and touch sensor), background I2S audio monitoring, and seamless integration with a custom Flutter mobile application over Bluetooth Low Energy (BLE) and MQTT.
 
 ---
 
@@ -21,16 +21,48 @@ This project runs a companion robot control system on an **ESP32-S3-N16R8** deve
 
 ```
 2.1/
+├── 2.1App/                      # Flutter Mobile Application Source Code
 ├── .gitignore                   # Optimized Git exclude configurations
 ├── platformio.ini               # PlatformIO project environment definitions
 ├── partitions.csv               # Flash partition layout for ESP32-S3 (16MB)
 ├── src/                         # Active PlatformIO Source
 │   ├── main.cpp                 # Main setup, loop, and background tasks
-│   ├── RobotEyes.cpp            # Eye physics & rendering logic
-│   └── RobotEyes.h              # Eye structures and declarations
+│   ├── RobotEyes.cpp            # Eye physics, UI overlays, & rendering logic
+│   ├── RobotEyes.h              # Eye structures and declarations
+│   └── MqttManager.cpp          # MQTT communication and command parsing
 ├── lib/                         # Project Libraries
 └── README.md                    # Project documentation
 ```
+
+---
+
+## Features & Capabilities
+
+### 1. Dynamic Eye Physics & Emotion Engine
+The core of the robot is an advanced physics-based eye rendering engine powered by **LovyanGFX**. The eyes exhibit fluid, spring-physics-based movements (`spring`, `damping`, `mass`) to simulate natural saccades and emotion. 
+Supported states include: `NEUTRAL`, `HAPPY`, `SAD`, `ANGRY`, `SLEEPY`, `ASLEEP`, `DIZZY`, `PANIC`, and `INNOCENT`.
+
+### 2. Flutter Mobile Application Integration
+The robot is controlled via a custom cross-platform Flutter application (`2.1App`). 
+- **BLE Provisioning:** The app uses Bluetooth Low Energy (`flutter_blue_plus`) to discover the robot and securely transmit WiFi credentials, setting up the robot without hardcoded network profiles.
+- **MQTT Command & Control:** Once on the network, the app and robot communicate bidirectionally using an MQTT broker, allowing low-latency remote control over the robot's states and settings.
+
+### 3. Dynamic Weather & Clock Mode
+The robot features a responsive, animated clock mode with a real-time weather widget.
+- **Live Weather API:** The Flutter app fetches real-time weather data via the **OpenWeatherMap API** and pushes updates (`weather_temp`, `weather_desc`, `weather_icon`) directly to the robot over MQTT. 
+- **City Search & Caching:** The app includes a user-friendly city search dropdown and persistently caches the selected location (e.g., "London, UK") using `shared_preferences` so weather fetches automatically on boot.
+- **Time-based Environments:** The clock's background animation fluidly shifts between daytime and nighttime themes depending on the hour (e.g., #085893 to #1576ab gradient with twinkles at night vs #99D4FF daylight).
+
+### 4. Phone Notification Mirroring ("Look Here!")
+The robot acts as an intelligent notification extension for your Android smartphone.
+- **Background Isolate Listener:** The Flutter app runs a headless background Dart isolate using `flutter_notification_listener`. It intercepts incoming notifications even when the app is swiped away or the phone is locked.
+- **App Filtering:** It specifically monitors 9 targeted applications: `WhatsApp`, `SMS`, `Phone Calls`, `Telegram`, `Gmail`, `YouTube`, `Facebook`, `Instagram`, and `TikTok`.
+- **Interruptive Animations:** When a notification arrives, it pushes a lightning-fast MQTT payload. The robot instantly snaps its eyes downward to "look" at the screen, and beautifully rendered, pixel-perfect, color-accurate vector logos (drawn purely with LovyanGFX primitives) bounce onto the screen with the sender's name for 4.5 seconds.
+- **Context-Aware Safety:** The robot intelligently ignores notifications if it is currently engaged in a focus task (like the Pomodoro timer) or an alarm mode, preventing unwanted distractions.
+
+### 5. Productivity & Utility Overlays
+- **Pomodoro Timer:** The user can start a focus session (e.g., 25 minutes) from the app. The robot displays a sleek, unobtrusive countdown timer overlay beneath its eyes.
+- **Color Customization:** The clock font and UI elements can be dynamically color-shifted (e.g., Red, Green, Blue) via the app.
 
 ---
 
@@ -51,47 +83,6 @@ For heavy calculations (such as audio inference and vector graphics rendering), 
 - `-D BOARD_HAS_PSRAM`: Passes the compiler define ensuring the Arduino allocator is aware of the external RAM.
 
 ---
-
-## Translation from Arduino IDE (Original) to PlatformIO
-
-Converting the original Arduino sketch in the `original/` directory to this compiled PlatformIO project required several codebase adaptations:
-
-### 1. File Formats & Compilers
-- **Strict C++ Rules**: The main file was renamed from `main.ino` to `main.cpp`. C++ rules require all functions to be declared before they are called. Thus, forward declarations (like `bool processCameraData();`) were added.
-- **Includes**: Explicitly included `#include <Arduino.h>` which the Arduino IDE usually adds automatically in the background.
-
-### 2. Library Isolation
-- **Global vs Local**: Instead of installing libraries globally via the Arduino IDE Library Manager, libraries are strictly version-controlled inside `platformio.ini` under `lib_deps`.
-
-### 3. Task Management (FreeRTOS)
-- **Multithreading**: In Arduino, everything is typically sequential. In PlatformIO, the audio monitoring is separated into a dedicated FreeRTOS thread (`audioInferenceTask`) pinned to Core 0 using `xTaskCreatePinnedToCore()`. 
-- This ensures the UI rendering (which runs on Core 1's main execution loop) remains completely stutter-free and unaffected by heavy microsecond audio sampling processes.
-
----
-
-## Bug Fixes & Refactoring
-
-The following critical issues were resolved to get the firmware running cleanly on the **ESP32-S3-N16R8**:
-
-### 1. Board & PSRAM Configuration Fix
-* **Issue**: The original configurations targeted an incorrect board (`4d_systems_esp32s3_gen4_r8n16`), causing boot errors and memory alignment issues.
-* **Fix**: Updated `platformio.ini` to compile for the generic `esp32-s3-devkitc-1` dev board. Configured the flash size to `16MB` and the memory type to `qio_opi` (Octal SPI PSRAM) which matches the N16R8 hardware specification. Added the `-D BOARD_HAS_PSRAM` compiler flag.
-
-### 2. I2C Bus Conflict & OLED Lockup Fix
-* **Issue**: In `src/main.cpp`, a `Wire.begin(4, 5)` call was initialized right before the screen setup. The `LovyanGFX` display engine manages its own I2C bus driver on pins 4/5. Conflicting configurations on the same I2C port locked the bus and left the OLED completely blank.
-* **Fix**: Removed the conflicting `Wire.begin(4, 5)` call. The OLED now initializes properly, and the MPU6050 successfully initializes on default I2C pins (`8`/`9`).
-
-### 3. Core 0 Panic (`StoreProhibited`) Fix
-* **Issue**: The `audioInferenceTask` running on Core 0 utilized an ESP-SR framework configuration. Without the proper model partition flashed or valid PSRAM settings at boot (the Boya flash chip initializes in `DIO` mode), the ESP-SR setup returned a `NULL` pointer, crashing the processor and causing an infinite reboot loop.
-* **Fix**: Replaced the ESP-SR audio framework with a crash-safe, raw 32-bit I2S audio monitoring task (matching the original circular buffer logic from `main.ino`). The task runs stably on Core 0, allocating buffers safely from internal RAM without PSRAM dependency.
-
-### 4. Watchdog Timer (WDT) Trigger Prevention
-* **Issue**: Core 1's main execution path had no yield delays, risking watchdog triggers during heavy rendering loops.
-* **Fix**: Inserted `vTaskDelay(pdMS_TO_TICKS(10))` at the end of the `loop()` function to yield CPU cycles to lower priority background tasks.
-
-### 5. Repository Bloat & Tracking Cleanup
-* **Issue**: The Git repository was tracking 2,000+ files because of the auto-generated dependency directories `managed_components/` and C++ compiler telemetry files `compile_commands.json`.
-* **Fix**: Configured `.gitignore` to properly exclude `managed_components/` and `compile_commands.json`, reducing the repository tracking footprint to source-only files.
 
 ## ESP-SR (Keyword Spotting & Voice Commands) Architecture Plan
 

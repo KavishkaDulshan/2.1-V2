@@ -3,7 +3,6 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "RobotEyes.h"
-#include "RobotEyes.h"
 
 extern time_t targetAlarmTime;
 extern unsigned long pomodoroEndTime;
@@ -11,6 +10,7 @@ extern bool alarmTriggered;
 extern String weatherCity;
 extern TaskHandle_t weatherTaskHandle;
 extern bool weatherTimezoneReady;
+extern unsigned long lastInteractionTime;
 
 // We use a free public MQTT broker for prototyping
 const char* mqtt_server = "broker.emqx.io";
@@ -94,6 +94,16 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
                 }
                 alarmTriggered = false;
                 Serial.printf("Alarm set for %02d:%02d\n", h, m);
+            }
+        }
+        if (doc.containsKey("notify")) {
+            String appName = doc["notify"].as<String>();
+            String sender = doc.containsKey("sender") ? doc["sender"].as<String>() : "";
+            if (eyes != nullptr) {
+                eyes->triggerNotification(appName, sender);
+                // Reset idle timer so the notification isn't immediately
+                // overridden by the robot falling asleep
+                lastInteractionTime = millis();
             }
         }
         

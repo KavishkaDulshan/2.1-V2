@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../models/mqtt_state.dart';
+import 'package:flutter_notification_listener/flutter_notification_listener.dart';
 
 class UtilitiesScreen extends StatefulWidget {
   const UtilitiesScreen({super.key});
@@ -202,6 +203,58 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                           });
                           final mode = value ? "clock" : "eyes";
                           context.read<MqttState>().publish("robot21/commands/master", '{"mode": "$mode"}');
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // --- NOTIFICATION MIRRORING ---
+                    _buildGlassCard(
+                      context,
+                      title: 'Notification Mirroring',
+                      icon: Icons.notifications_active,
+                      child: FutureBuilder<bool?>(
+                        future: NotificationsListener.hasPermission,
+                        builder: (context, snapshot) {
+                          final hasPermission = snapshot.data ?? false;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Grant Notification Access', style: TextStyle(color: Colors.white)),
+                            subtitle: Text(
+                              hasPermission ? 'Access Granted. Tap to start/sync service.' : 'Tap to enable Android notifications',
+                              style: TextStyle(color: hasPermission ? Colors.greenAccent : Colors.white54),
+                            ),
+                            trailing: Icon(
+                              hasPermission ? Icons.check_circle : Icons.warning,
+                              color: hasPermission ? Colors.greenAccent : Colors.orangeAccent,
+                            ),
+                            onTap: () async {
+                              if (!hasPermission) {
+                                await NotificationsListener.openPermissionSettings();
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Please enable access, then return and tap this again to start.')),
+                                  );
+                                }
+                              } else {
+                                bool isRunning = await NotificationsListener.isRunning ?? false;
+                                if (!isRunning) {
+                                  await NotificationsListener.startService(foreground: false);
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Background service started successfully!')),
+                                    );
+                                  }
+                                } else {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Service is already running and listening.')),
+                                    );
+                                  }
+                                }
+                              }
+                            },
+                          );
                         },
                       ),
                     ),

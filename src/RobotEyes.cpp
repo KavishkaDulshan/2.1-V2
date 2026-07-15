@@ -19,6 +19,57 @@ static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t co
   }
 }
 
+static void drawAppLogo(LGFX_Sprite *spr, String app, int cx, int cy, int size) {
+    if (app == "whatsapp") {
+        spr->fillCircle(cx, cy, size, 0x2591); // #25D366 (Green) -> RGB565 approx
+        spr->drawArc(cx, cy, size/2, size/2 - 2, 45, 225, TFT_WHITE);
+        spr->fillTriangle(cx - size/2, cy + size/2, cx - size/4, cy + size/4, cx - size/2, cy + size/6, TFT_WHITE);
+    } else if (app == "youtube") {
+        spr->fillRoundRect(cx - size, cy - (int)(size*0.7f), size*2, (int)(size*1.4f), size/4, 0xF800); // Red
+        spr->fillTriangle(cx - size/4, cy - size/3, cx - size/4, cy + size/3, cx + size/2, cy, TFT_WHITE);
+    } else if (app == "facebook") {
+        spr->fillRoundRect(cx - size, cy - size, size*2, size*2, size/3, 0x187F); // #1877F2 (Blue)
+        spr->fillRect(cx, cy - size/2, size/3, size, TFT_WHITE);
+        spr->fillRect(cx - size/4, cy, (int)(size*0.8f), size/4, TFT_WHITE);
+    } else if (app == "instagram") {
+        spr->fillRoundRect(cx - size, cy - size, size*2, size*2, size/3, 0xD12E); // Magenta/Pink approx
+        spr->drawRoundRect(cx - (int)(size*0.65f), cy - (int)(size*0.65f), (int)(size*1.3f), (int)(size*1.3f), size/4, TFT_WHITE);
+        spr->drawCircle(cx, cy, size/3, TFT_WHITE);
+        spr->fillCircle(cx + size/3, cy - size/3, size/8, TFT_WHITE);
+    } else if (app == "tiktok") {
+        spr->fillRoundRect(cx - size, cy - size, size*2, size*2, size/3, TFT_BLACK);
+        // Cyan shadow
+        spr->drawFastVLine(cx - size/4 - 1, cy - size/2, size, 0x07FF);
+        spr->drawCircle(cx - size/2 - 1, cy + size/4, size/3, 0x07FF);
+        // Red shadow
+        spr->drawFastVLine(cx - size/4 + 1, cy - size/2, size, 0xF800);
+        spr->drawCircle(cx - size/2 + 1, cy + size/4, size/3, 0xF800);
+        // White main
+        spr->drawFastVLine(cx - size/4, cy - size/2, size, TFT_WHITE);
+        spr->drawCircle(cx - size/2, cy + size/4, size/3, TFT_WHITE);
+    } else if (app == "telegram") {
+        spr->fillCircle(cx, cy, size, 0x24B7); // #24A1DE
+        spr->fillTriangle(cx - size/2, cy, cx + size/2, cy - size/2, cx + size/4, cy + size/2, TFT_WHITE);
+        spr->fillTriangle(cx, cy + size/6, cx + size/2, cy - size/2, cx + size/4, cy + size/2, 0xCE79); // Shadow
+    } else if (app == "gmail") {
+        spr->fillRoundRect(cx - size, cy - (int)(size*0.7f), size*2, (int)(size*1.4f), size/4, TFT_WHITE);
+        spr->drawRoundRect(cx - size, cy - (int)(size*0.7f), size*2, (int)(size*1.4f), size/4, 0xCE79); // border
+        spr->drawLine(cx - size, cy - (int)(size*0.7f), cx, cy + size/4, 0xF800);
+        spr->drawLine(cx + size, cy - (int)(size*0.7f), cx, cy + size/4, 0xF800);
+    } else if (app == "sms") {
+        spr->fillCircle(cx, cy, size, 0x041F); // Blue
+        spr->fillRoundRect(cx - (int)(size*0.6f), cy - size/2, (int)(size*1.2f), size, size/4, TFT_WHITE);
+        spr->fillTriangle(cx - size/2, cy + size/2, cx - size/4, cy + size/2, cx - (int)(size*0.6f), cy + (int)(size*0.8f), TFT_WHITE);
+    } else if (app == "phone") {
+        spr->fillCircle(cx, cy, size, 0x0540); // Dark Green
+        spr->fillRoundRect(cx - (int)(size*0.6f), cy - size/4, (int)(size*1.2f), size/2, size/4, TFT_WHITE);
+    } else {
+        // Generic Bell
+        spr->fillCircle(cx, cy, size, 0xFD20); // Orange
+        spr->fillCircle(cx, cy, size/2, TFT_WHITE);
+    }
+}
+
 void RobotEyes::init()
 {
   randomSeed(esp_random());
@@ -144,6 +195,12 @@ void RobotEyes::setEmotion(Emotion e)
     targetX = 0;
     targetY = 0; // intense stare
   }
+  else if (e == NOTIFICATION)
+  {
+    targetX = 0;
+    targetY = 20.0f; // Look down at the notification
+    easeFactor = 0.2f;
+  }
   else if (e == WARNING_ANIM)
   {
     warningFrame = 0;
@@ -162,6 +219,21 @@ void RobotEyes::setEmotion(Emotion e)
     idleTargetX = 0;
     idleTargetY = 0;
   }
+}
+
+void RobotEyes::triggerNotification(String appName, String sender) {
+    if (currentEmotion != CLOCK_MODE && currentEmotion != NEUTRAL && currentEmotion != SLEEPY && currentEmotion != ASLEEP) {
+        // Do not interrupt Pomodoro or Guard mode or Alarm
+        return;
+    }
+    if (timerActive) return; // Do not interrupt pomodoro timer overlay
+    
+    notifRestoreEmotion = currentEmotion; // Save state to restore after timeout
+    notifAppName = appName;
+    notifSender = sender;
+    notifTimer = millis();
+    notifTimeout = millis() + 5500; // 5.5s: 5s animation + 0.5s buffer
+    setEmotion(NOTIFICATION);
 }
 
 void RobotEyes::lookAt(float x, float y)
@@ -194,6 +266,17 @@ void RobotEyes::update()
   }
 
   unsigned long now = millis();
+
+  // --- NOTIFICATION AUTO-TIMEOUT ---
+  if (currentEmotion == NOTIFICATION) {
+    if (notifTimeout > 0 && now > notifTimeout) {
+      currentEmotion = notifRestoreEmotion;
+      notifTimeout = 0;
+      notifAppName = "";
+      notifSender = "";
+    }
+    return; // No further animation updates during notification
+  }
 
   // --- DIZZY ANIMATION ---
   if (currentEmotion == DIZZY)
@@ -1306,6 +1389,37 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
     
     spr->drawString(wStr, 155, 5);
+  }
+
+  // --- DRAW NOTIFICATION MIRRORING ---
+  if (currentEmotion == NOTIFICATION) {
+    float timeElapsed = millis() - notifTimer;
+    float scale = 1.0f;
+    float yOffset = 0;
+    
+    // Fluid animation: bounce up, hold, then scale down
+    if (timeElapsed < 500) {
+      scale = timeElapsed / 500.0f;
+      yOffset = 30.0f * (1.0f - scale);
+    } else if (timeElapsed > 4500) {
+      scale = (5000 - timeElapsed) / 500.0f;
+      if (scale < 0) scale = 0;
+    }
+    
+    if (scale > 0.05f) {
+      int cx = 80;
+      int cy = 90 + (int)yOffset; // Draw lower so eyes can look down at it
+      int size = (int)(24 * scale);
+      
+      drawAppLogo(spr, notifAppName, cx, cy, size);
+      
+      // Draw sender name
+      spr->setTextDatum(textdatum_t::top_center);
+      spr->setTextColor(TFT_WHITE, TFT_BLACK);
+      spr->setTextSize(1);
+      spr->setTextFont(1);
+      spr->drawString(notifSender, cx, cy + size + 4);
+    }
   }
 }
 
