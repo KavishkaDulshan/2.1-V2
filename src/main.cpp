@@ -16,6 +16,7 @@
 #include <time.h>
 #include <ArduinoJson.h>
 #include <WiFiClient.h>
+#include <Preferences.h>
 
 // --- UTILITY CONFIG ---
 const char* ntpServer = "pool.ntp.org";
@@ -38,6 +39,14 @@ bool alarmTriggered = false;
 // true  = Prints raw microphone wave for Serial Plotter visualizer
 #define DEBUG_AUDIO_WAVE false 
 // =========================================================================
+
+// --- WI-FI MANAGER CONFIG ---
+Preferences preferences;
+unsigned long lastWifiRetryTime = 0;
+const unsigned long WIFI_RETRY_INTERVAL = 10000; // 10 seconds
+bool wasWifiConnected = false;
+String savedSsid = "";
+String savedPass = "";
 
 // --- HARDWARE CONFIGURATION ---
 #define RX_PIN 18     
@@ -324,8 +333,18 @@ void setup() {
   Serial.begin(115200);
   delay(3000); 
 
+  preferences.begin("robot", false);
+  savedSsid = preferences.getString("ssid", "");
+  savedPass = preferences.getString("pass", "");
+
   // Initialize BLE Server for Provisioning FIRST to guarantee memory
   BleManager::init();
+
+  if (savedSsid != "") {
+      Serial.println("Found saved Wi-Fi credentials. Connecting in background...");
+      WiFi.mode(WIFI_STA);
+      WiFi.begin(savedSsid.c_str(), savedPass.c_str());
+  }
 
   Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN); 
 
@@ -398,39 +417,54 @@ void setup() {
 void loop() {
   // Check if we received new Wi-Fi credentials via BLE
   if (BleManager::hasNewCredentials()) {
-      Serial.println("Attempting Wi-Fi Connection...");
+      Serial.println("Attempting Wi-Fi Connection with new credentials...");
       
+      savedSsid = BleManager::getSsid();
+      savedPass = BleManager::getPassword();
+      
+      preferences.putString("ssid", savedSsid);
+      preferences.putString("pass", savedPass);
+
       // CRITICAL: Shut down BLE completely before attempting Wi-Fi.
-      // The ESP32 shares a single antenna. Having BLE active during Wi-Fi scan often causes NO_AP_FOUND.
       BleManager::stop();
       delay(500); // Give the radio time to switch modes
 
-      WiFi.mode(WIFI_STA); // Explicitly set station mode
-      WiFi.disconnect();   // Clear any old connections
+      WiFi.mode(WIFI_STA); 
+      WiFi.disconnect();   
       delay(100);
 
-      WiFi.begin(BleManager::getSsid().c_str(), BleManager::getPassword().c_str());
+      WiFi.begin(savedSsid.c_str(), savedPass.c_str());
+      lastWifiRetryTime = millis();
       
-      int attempts = 0;
-      while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-          delay(500);
-          Serial.print(".");
-          attempts++;
-      }
-      
-      if (WiFi.status() == WL_CONNECTED) {
-          Serial.println("\nWi-Fi Connected successfully!");
-          Serial.print("IP Address: ");
-          Serial.println(WiFi.localIP());
-          
-          // Initialize time
-          configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-          timeConfigured = true;
-          Serial.println("NTP Time Sync requested.");
-      } else {
-          Serial.println("\nFailed to connect to Wi-Fi. Please restart the robot to turn BLE back on and try again.");
-      }
       BleManager::clearCredentials();
+  }
+  
+  bool isWifiConnected = (WiFi.status() == WL_CONNECTED);
+
+  if (isWifiConnected && !wasWifiConnected) {
+      Serial.println("\nWi-Fi Connected successfully!");
+      Serial.print("IP Address: ");
+      Serial.println(WiFi.localIP());
+      
+      configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+      timeConfigured = true;
+      Serial.println("NTP Time Sync requested.");
+      
+      BleManager::stop(); // Ensure BLE is fully stopped once on Wi-Fi
+      wasWifiConnected = true;
+  } else if (!isWifiConnected && wasWifiConnected) {
+      Serial.println("Wi-Fi Connection Lost! Will auto-reconnect.");
+      wasWifiConnected = false;
+  }
+
+  // Non-blocking auto-reconnect
+  if (!isWifiConnected && savedSsid != "") {
+      if (millis() - lastWifiRetryTime >= WIFI_RETRY_INTERVAL) {
+          lastWifiRetryTime = millis();
+          Serial.println("Retrying Wi-Fi connection...");
+          WiFi.disconnect();
+          WiFi.begin(savedSsid.c_str(), savedPass.c_str());
+      }
   }
   
   // Process MQTT Messages
