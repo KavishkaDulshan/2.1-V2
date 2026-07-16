@@ -1018,17 +1018,17 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         }
     }
 
-    // ===== STEP 6: Location Name (Bottom Center) =====
+    // ===== STEP 6: Location Name (Bottom Left) =====
     spr->setTextFont(2);
     spr->setTextSize(1);
-    spr->setTextDatum(textdatum_t::bottom_center);
+    spr->setTextDatum(textdatum_t::bottom_left);
     String displayCity = weatherCity;
     displayCity.replace("%20", " ");
     // Draw a subtle text shadow (dark, no fill box)
     spr->setTextColor(0x2104);
-    spr->drawString(displayCity, 80 + 1, 128 - 1 + 1); // Slight shadow offset
+    spr->drawString(displayCity, 5 + 1, 128 - 1 + 1); // Slight shadow offset
     spr->setTextColor(TFT_LIGHTGREY);
-    spr->drawString(displayCity, 80, 128 - 1);
+    spr->drawString(displayCity, 5, 128 - 1);
 
     return;
   }
