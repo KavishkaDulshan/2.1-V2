@@ -125,6 +125,7 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
         
         if (doc.containsKey("city")) {
             weatherCity = doc["city"].as<String>();
+            preferences.putString("city", weatherCity);
             Serial.println("Weather city updated to: " + weatherCity);
             weatherTimezoneReady = false; // Reset until new timezone is fetched
             if (eyes != nullptr) {

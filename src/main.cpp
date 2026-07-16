@@ -303,6 +303,7 @@ void weatherTask(void *pvParameters) {
                         // Parse UTC timezone offset (seconds) from OpenWeatherMap response
                         if (doc.containsKey("timezone")) {
                             weatherTimezoneOffset = doc["timezone"].as<long>();
+                            preferences.putLong("tz_offset", weatherTimezoneOffset);
                             weatherTimezoneReady  = true;
                             Serial.printf("City timezone offset: %ld seconds (UTC%+.1f)\n",
                                 weatherTimezoneOffset, weatherTimezoneOffset / 3600.0f);
@@ -336,6 +337,11 @@ void setup() {
   preferences.begin("robot", false);
   savedSsid = preferences.getString("ssid", "");
   savedPass = preferences.getString("pass", "");
+  weatherCity = preferences.getString("city", "London,UK");
+  weatherTimezoneOffset = preferences.getLong("tz_offset", 19800);
+  if (preferences.isKey("tz_offset")) {
+      weatherTimezoneReady = true;
+  }
 
   // Initialize BLE Server for Provisioning FIRST to guarantee memory
   BleManager::init();
