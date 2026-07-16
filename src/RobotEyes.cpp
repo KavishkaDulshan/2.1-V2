@@ -740,9 +740,13 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   spr->fillScreen(TFT_BLACK);
 
   // --- STATUS BAR ---
-  if (enableStatusBar) {
+  auto drawStatusBar = [&](bool onlyWifi) {
+    if (!enableStatusBar) return;
+    
     // Semi-transparent dark background effect using solid dark color
-    spr->fillRect(0, 0, 160, 20, 0x10A2); // Very dark blue/grey, increased height to 20
+    if (!onlyWifi) {
+      spr->fillRect(0, 0, 160, 20, 0x10A2); // Very dark blue/grey, increased height to 20
+    }
     
     // Draw WiFi Icon (top-left, drawn natively)
     if (sbShowWifi) {
@@ -770,13 +774,17 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
     
     // Draw Time (top-right)
-    if (sbShowTime && currentEmotion != CLOCK_MODE) {
+    if (!onlyWifi && sbShowTime && currentEmotion != CLOCK_MODE) {
       spr->setTextFont(2);
       spr->setTextSize(1);
       spr->setTextDatum(textdatum_t::top_right);
       spr->setTextColor(TFT_LIGHTGREY);
       spr->drawString(timeString, 158, 4); // Moved down 4 pixels
     }
+  };
+
+  if (currentEmotion != SLEEPY && currentEmotion != ASLEEP && currentEmotion != CLOCK_MODE) {
+    drawStatusBar(false);
   }
 
   if (currentEmotion == WARNING_ANIM) {
@@ -1072,6 +1080,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->setTextColor(TFT_LIGHTGREY);
     spr->drawString(displayCity, 5, 128 - 1);
 
+    drawStatusBar(true); // Draw only WiFi icon on top of clock background
     return;
   }
 
@@ -1354,6 +1363,11 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         spr->drawLine(zx - zs, zy - zs + 1, zx + zs, zy - zs + 1, zColor); 
       }
     }
+  }
+
+  // Draw full status bar on top for sleeping animations
+  if (currentEmotion == SLEEPY || currentEmotion == ASLEEP) {
+    drawStatusBar(false);
   }
 
   // --- DRAW TIMER PROGRESS (POMODORO) ---
