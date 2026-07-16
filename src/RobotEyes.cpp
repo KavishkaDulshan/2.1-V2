@@ -743,10 +743,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   auto drawStatusBar = [&](bool onlyWifi) {
     if (!enableStatusBar) return;
     
-    // Semi-transparent dark background effect using solid dark color
-    if (!onlyWifi) {
-      spr->fillRect(0, 0, 160, 20, 0x10A2); // Very dark blue/grey, increased height to 20
-    }
+    // (Background completely removed)
     
     // Draw WiFi Icon (top-left, drawn natively)
     if (sbShowWifi) {
