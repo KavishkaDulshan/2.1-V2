@@ -927,17 +927,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
 
     // ===== STEP 3: Top section – City Name =====
-    spr->setTextFont(2);
-    spr->setTextSize(1);
-    spr->setTextDatum(textdatum_t::top_center);
-    String displayCity = weatherCity;
-    displayCity.replace("%20", " ");
-    // Draw a subtle text shadow (dark, no fill box)
-    spr->setTextColor(0x2104);
-    spr->drawString(displayCity, 80 + 1, 5 + 1);
-    spr->setTextColor(TFT_LIGHTGREY);
-    spr->drawString(displayCity, 80, 5);
-
+    // (City name moved to the bottom)
     // ===== STEP 4: Middle section – Time =====
     spr->setTextFont(4);
     spr->setTextSize(2);
@@ -962,9 +952,6 @@ void RobotEyes::draw(LGFX_Sprite *spr)
 
     // ===== STEP 5: Bottom section – Icon + Condition + Temperature =====
     if (weatherIcon != "") {
-        // Draw a subtle separator line
-        spr->drawFastHLine(10, 94, 140, 0x4208);
-
         if (weatherIcon == "loading") {
             spr->setTextFont(2);
             spr->setTextSize(1);
@@ -1030,6 +1017,18 @@ void RobotEyes::draw(LGFX_Sprite *spr)
             spr->drawString(tempStr, 155, iconY);
         }
     }
+
+    // ===== STEP 6: Location Name (Bottom Center) =====
+    spr->setTextFont(2);
+    spr->setTextSize(1);
+    spr->setTextDatum(textdatum_t::bottom_center);
+    String displayCity = weatherCity;
+    displayCity.replace("%20", " ");
+    // Draw a subtle text shadow (dark, no fill box)
+    spr->setTextColor(0x2104);
+    spr->drawString(displayCity, 80 + 1, 128 - 1 + 1); // Slight shadow offset
+    spr->setTextColor(TFT_LIGHTGREY);
+    spr->drawString(displayCity, 80, 128 - 1);
 
     return;
   }
