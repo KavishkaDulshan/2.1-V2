@@ -232,6 +232,12 @@ public:
   String weatherCondition = ""; // e.g. "Clear", "Rain"
   uint16_t clockColor = 0xFFFF; // Default to white (TFT_WHITE)
   
+  // --- STATUS BAR ---
+  bool enableStatusBar = false;
+  bool sbShowWifi = false;
+  bool sbShowTime = false;
+  uint8_t currentWifiFrame = 0;
+  unsigned long lastWifiFrameTime = 0;
   // Timer / Alarm
   bool timerActive = false;
   float timerProgress = 0.0f; // 0.0 to 1.0

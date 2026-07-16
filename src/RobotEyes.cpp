@@ -1,6 +1,8 @@
 #include "RobotEyes.h"
 #include <math.h>
 #include "WarningAnimation.h"
+#include <WiFi.h>
+
 static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t color) {
   int innerRadius = radius / 2;
   int points[10][2];
@@ -736,6 +738,44 @@ void RobotEyes::update()
 void RobotEyes::draw(LGFX_Sprite *spr)
 {
   spr->fillScreen(TFT_BLACK);
+
+  // --- STATUS BAR ---
+  if (enableStatusBar) {
+    // Semi-transparent dark background effect using solid dark color
+    spr->fillRect(0, 0, 160, 16, 0x10A2); // Very dark blue/grey, increased height to 16
+    
+    // Draw WiFi Icon (top-left, drawn natively)
+    if (sbShowWifi) {
+      int wx = 12, wy = 13; // Base of the wifi icon
+      uint8_t wifiLevel = 3; 
+      if (WiFi.status() != WL_CONNECTED) {
+        if (millis() - lastWifiFrameTime > 400) {
+          currentWifiFrame = (currentWifiFrame + 1) % 4; // cycles 0,1,2,3
+          lastWifiFrameTime = millis();
+        }
+        wifiLevel = currentWifiFrame;
+      }
+      
+      if (wifiLevel > 0) {
+        spr->fillCircle(wx, wy, 1, TFT_WHITE); // Dot
+      }
+      if (wifiLevel > 1) {
+        spr->fillArc(wx, wy, 3, 4, 225, 315, TFT_WHITE); // Inner arc
+      }
+      if (wifiLevel > 2) {
+        spr->fillArc(wx, wy, 6, 7, 225, 315, TFT_WHITE); // Outer arc
+      }
+    }
+    
+    // Draw Time (top-right)
+    if (sbShowTime && currentEmotion != CLOCK_MODE) {
+      spr->setTextFont(2);
+      spr->setTextSize(1);
+      spr->setTextDatum(textdatum_t::top_right);
+      spr->setTextColor(TFT_LIGHTGREY);
+      spr->drawString(timeString, 158, 0); // Moved down slightly (from -1 to 0)
+    }
+  }
 
   if (currentEmotion == WARNING_ANIM) {
     int wX = (160 - WARNING_FRAME_WIDTH) / 2;

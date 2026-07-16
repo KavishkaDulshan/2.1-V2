@@ -364,7 +364,10 @@ void setup() {
   
   sprite.createSprite(160, 128);
   eyes.init();
-  
+  eyes.enableStatusBar = preferences.getBool("sb_en", false);
+  eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
+  eyes.sbShowTime      = preferences.getBool("sb_time", false);
+
   Wire.begin(4, 5); // Initialize I2C for MPU6050
   if (!mpu.begin()) {
     Serial.println("Failed to find MPU6050");

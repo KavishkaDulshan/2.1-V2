@@ -3,6 +3,9 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "RobotEyes.h"
+#include <Preferences.h>
+
+extern Preferences preferences;
 
 extern time_t targetAlarmTime;
 extern unsigned long pomodoroEndTime;
@@ -130,6 +133,25 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
             if (weatherTaskHandle != NULL) {
                 xTaskNotifyGive(weatherTaskHandle);
             }
+        }
+        
+        if (doc.containsKey("sb_en")) {
+            bool sbEn = doc["sb_en"].as<bool>();
+            if (eyes != nullptr) eyes->enableStatusBar = sbEn;
+            preferences.putBool("sb_en", sbEn);
+            Serial.printf("Status Bar enabled: %d\n", sbEn);
+        }
+        if (doc.containsKey("sb_wifi")) {
+            bool sbWifi = doc["sb_wifi"].as<bool>();
+            if (eyes != nullptr) eyes->sbShowWifi = sbWifi;
+            preferences.putBool("sb_wifi", sbWifi);
+            Serial.printf("Status Bar WiFi: %d\n", sbWifi);
+        }
+        if (doc.containsKey("sb_time")) {
+            bool sbTime = doc["sb_time"].as<bool>();
+            if (eyes != nullptr) eyes->sbShowTime = sbTime;
+            preferences.putBool("sb_time", sbTime);
+            Serial.printf("Status Bar Time: %d\n", sbTime);
         }
     } else {
         Serial.println("Failed to parse MQTT JSON");

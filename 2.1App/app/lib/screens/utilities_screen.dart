@@ -22,6 +22,10 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
   int _timeRemaining = 0; // in seconds
   bool _isClockMode = false;
 
+  bool _sbEnable = false;
+  bool _sbWifi = false;
+  bool _sbTime = false;
+
   bool _notifMaster = false;
   final Map<String, bool> _notifApps = {
     'whatsapp': false,
@@ -46,6 +50,9 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       _notifMaster = prefs.getBool('notif_master') ?? false;
+      _sbEnable = prefs.getBool('sb_en') ?? false;
+      _sbWifi = prefs.getBool('sb_wifi') ?? false;
+      _sbTime = prefs.getBool('sb_time') ?? false;
       for (final app in _notifApps.keys.toList()) {
         _notifApps[app] = prefs.getBool('notif_app_$app') ?? false;
       }
@@ -224,7 +231,7 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                       child: SwitchListTile(
                         title: const Text('Show Clock on Robot', style: TextStyle(color: Colors.white)),
                         value: _isClockMode,
-                        activeColor: Colors.blueAccent,
+                        activeThumbColor: Colors.blueAccent,
                         contentPadding: EdgeInsets.zero,
                         onChanged: (bool value) {
                           setState(() {
@@ -237,6 +244,54 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                     ),
                     const SizedBox(height: 16),
                     
+                    // --- STATUS BAR ---
+                    _buildGlassCard(
+                      context,
+                      title: 'Status Bar',
+                      icon: Icons.horizontal_split,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Enable Status Bar', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            activeThumbColor: Colors.blueAccent,
+                            value: _sbEnable,
+                            onChanged: (val) {
+                              setState(() => _sbEnable = val);
+                              _saveToggle('sb_en', val);
+                              context.read<MqttState>().publish("robot21/commands/master", '{"sb_en": $val}');
+                            },
+                          ),
+                          if (_sbEnable) ...[
+                            SwitchListTile(
+                              contentPadding: const EdgeInsets.only(left: 16.0),
+                              title: const Text('Show WiFi Icon', style: TextStyle(color: Colors.white)),
+                              activeThumbColor: Colors.blueAccent,
+                              value: _sbWifi,
+                              onChanged: (val) {
+                                setState(() => _sbWifi = val);
+                                _saveToggle('sb_wifi', val);
+                                context.read<MqttState>().publish("robot21/commands/master", '{"sb_wifi": $val}');
+                              },
+                            ),
+                            SwitchListTile(
+                              contentPadding: const EdgeInsets.only(left: 16.0),
+                              title: const Text('Show Time', style: TextStyle(color: Colors.white)),
+                              activeThumbColor: Colors.blueAccent,
+                              value: _sbTime,
+                              onChanged: (val) {
+                                setState(() => _sbTime = val);
+                                _saveToggle('sb_time', val);
+                                context.read<MqttState>().publish("robot21/commands/master", '{"sb_time": $val}');
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
                     // --- NOTIFICATION MIRRORING ---
                     _buildGlassCard(
                       context,
