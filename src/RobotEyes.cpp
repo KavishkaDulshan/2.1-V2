@@ -1,8 +1,6 @@
 #include "RobotEyes.h"
 #include <math.h>
 #include "WarningAnimation.h"
-#include "app_icons.h"
-
 static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t color) {
   int innerRadius = radius / 2;
   int points[10][2];
@@ -34,29 +32,7 @@ static uint16_t getAppColor(const String& app) {
     return TFT_WHITE;
 }
 
-// Draw a 16x16 app icon bitmap using the brand color at position (x,y)
-static void drawToastIcon(LGFX_Sprite *spr, const String& app, int x, int y) {
-    uint16_t color = getAppColor(app);
-    const uint8_t* bmp = nullptr;
-    
-    if      (app == "whatsapp")  bmp = icon_whatsapp;
-    else if (app == "youtube")   bmp = icon_youtube;
-    else if (app == "facebook")  bmp = icon_facebook;
-    else if (app == "instagram") bmp = icon_instagram;
-    else if (app == "gmail")     bmp = icon_gmail;
-    else if (app == "sms")       bmp = icon_sms;
-    else if (app == "phone")     bmp = icon_phone;
-    else if (app == "telegram")  bmp = icon_telegram;
-    else if (app == "tiktok")    bmp = icon_tiktok;
-    
-    if (bmp) {
-        // Draw with brand color on black background
-        spr->drawBitmap(x, y, bmp, APP_ICON_W, APP_ICON_H, color, (uint16_t)TFT_BLACK);
-    } else {
-        // Fallback: colored square with first letter
-        spr->fillRect(x, y, APP_ICON_W, APP_ICON_H, color);
-    }
-}
+
 
 void RobotEyes::init()
 {
@@ -1349,7 +1325,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   // --- DRAW NOTIFICATION TOAST (top-right corner, runs over any emotion) ---
   if (toastActive && toastY > -25.0f) {
     int ty  = (int)toastY;
-    int tw  = 95;   // toast width
+    int tw  = 140;  // Increased toast width to 140px (out of 160px screen)
     int th  = 22;   // toast height
     int tx  = 158;  // right edge x
 
@@ -1357,19 +1333,53 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->fillRoundRect(tx - tw, ty, tw, th, 6, 0x18A3);   // dark blueish-grey
     spr->drawRoundRect(tx - tw, ty, tw, th, 6, 0x4208);   // slightly lighter border
 
-    // Brand-colored 16x16 icon on the left side of the toast
-    int iconX = tx - tw + 3;
-    int iconY = ty + (th - APP_ICON_H) / 2;
-    drawToastIcon(spr, notifAppName, iconX, iconY);
+    // Brand-colored dot on the left side of the toast
+    int dotR = 4;
+    int dotX = tx - tw + 8;
+    int dotY = ty + th / 2;
+    uint16_t brandColor = getAppColor(notifAppName);
+    spr->fillCircle(dotX, dotY, dotR, brandColor);
 
-    // Sender name — truncate to fit
-    String label = notifSender;
-    if (label.length() > 9) label = label.substring(0, 8) + ".";
+    // Prepare text label (e.g. "WhatsApp - Mom")
+    String displayApp = notifAppName;
+    if (displayApp.length() > 0) {
+        displayApp[0] = toupper(displayApp[0]);
+    }
+    String label = displayApp + " - " + notifSender;
+
     spr->setTextFont(1);
     spr->setTextSize(1);
-    spr->setTextDatum(textdatum_t::middle_left);
     spr->setTextColor(TFT_WHITE);
-    spr->drawString(label, iconX + APP_ICON_W + 3, ty + th / 2);
+    spr->setTextDatum(textdatum_t::middle_left);
+
+    int textX = dotX + dotR + 6;
+    int maxTextWidth = (tx - 4) - textX;
+    int labelWidth = spr->textWidth(label);
+
+    if (labelWidth <= maxTextWidth) {
+        // Fits perfectly, no scrolling
+        spr->drawString(label, textX, dotY);
+    } else {
+        // Marquee scrolling logic
+        spr->setClipRect(textX, ty, maxTextWidth, th);
+        
+        // Calculate scroll offset based on time
+        // 5000ms total duration of toast, wait 1s before scrolling
+        unsigned long elapsed = millis() - (toastShowUntil - 5000);
+        int scrollOffset = 0;
+        if (elapsed > 1000) {
+            float scrollProgress = (elapsed - 1000) / 25.0f; // Speed of scroll
+            scrollOffset = (int)scrollProgress;
+            // Cap scroll so it stops when end of text is visible
+            int maxScroll = labelWidth - maxTextWidth + 10; // 10px extra padding
+            if (scrollOffset > maxScroll) {
+                scrollOffset = maxScroll;
+            }
+        }
+        
+        spr->drawString(label, textX - scrollOffset, dotY);
+        spr->clearClipRect();
+    }
   }
 }
 

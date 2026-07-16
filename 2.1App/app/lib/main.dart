@@ -8,7 +8,7 @@ import 'models/mqtt_state.dart';
 import 'screens/splash_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_notification_listener/flutter_notification_listener.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 // ─── Allowed apps filter ──────────────────────────────────────────────────────
 const Map<String, String> _allowedApps = {
   'com.whatsapp':                        'whatsapp',
@@ -110,7 +110,7 @@ class _MyAppState extends State<MyApp> {
     debugPrint('[MAIN] receivePort listener attached.');
   }
 
-  void _handleNotificationEvent(NotificationEvent evt) {
+  void _handleNotificationEvent(NotificationEvent evt) async {
     debugPrint('[NOTIF] pkg=${evt.packageName}  title=${evt.title}');
 
     if (evt.packageName == null) return;
@@ -119,10 +119,27 @@ class _MyAppState extends State<MyApp> {
     }
 
     final appName = _allowedApps[evt.packageName]!;
+    
+    // Check SharedPreferences for toggles
+    final prefs = await SharedPreferences.getInstance();
+    final bool masterToggle = prefs.getBool('notif_master') ?? false;
+    if (!masterToggle) {
+      debugPrint('[NOTIF] Master toggle is OFF. Dropping notification.');
+      return;
+    }
+    
+    final bool appToggle = prefs.getBool('notif_app_$appName') ?? false;
+    if (!appToggle) {
+      debugPrint('[NOTIF] Toggle for $appName is OFF. Dropping notification.');
+      return;
+    }
+
     String sender = (evt.title ?? 'Someone').replaceAll('"', '\\"');
     if (sender.length > 20) sender = sender.substring(0, 20);
 
     debugPrint('[NOTIF] ✓ Forwarding → app=$appName  sender=$sender');
+
+    if (!mounted) return;
 
     final mqttState = context.read<MqttState>();
     if (mqttState.isConnected) {

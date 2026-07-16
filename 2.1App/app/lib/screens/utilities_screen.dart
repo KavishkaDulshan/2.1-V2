@@ -22,10 +22,39 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
   int _timeRemaining = 0; // in seconds
   bool _isClockMode = false;
 
+  bool _notifMaster = false;
+  final Map<String, bool> _notifApps = {
+    'whatsapp': false,
+    'telegram': false,
+    'sms': false,
+    'phone': false,
+    'gmail': false,
+    'youtube': false,
+    'facebook': false,
+    'instagram': false,
+    'tiktok': false,
+  };
+
   @override
   void initState() {
     super.initState();
     _loadSavedCity();
+    _loadToggles();
+  }
+
+  Future<void> _loadToggles() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _notifMaster = prefs.getBool('notif_master') ?? false;
+      for (final app in _notifApps.keys.toList()) {
+        _notifApps[app] = prefs.getBool('notif_app_$app') ?? false;
+      }
+    });
+  }
+
+  Future<void> _saveToggle(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
   }
 
   Future<void> _loadSavedCity() async {
@@ -213,51 +242,70 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                       context,
                       title: 'Notification Mirroring',
                       icon: Icons.notifications_active,
-                      child: FutureBuilder<bool?>(
-                        future: NotificationsListener.hasPermission,
-                        builder: (context, snapshot) {
-                          final hasPermission = snapshot.data ?? false;
-                          return ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Grant Notification Access', style: TextStyle(color: Colors.white)),
-                            subtitle: Text(
-                              hasPermission ? 'Access Granted. Tap to start/sync service.' : 'Tap to enable Android notifications',
-                              style: TextStyle(color: hasPermission ? Colors.greenAccent : Colors.white54),
-                            ),
-                            trailing: Icon(
-                              hasPermission ? Icons.check_circle : Icons.warning,
-                              color: hasPermission ? Colors.greenAccent : Colors.orangeAccent,
-                            ),
-                            onTap: () async {
-                              if (!hasPermission) {
-                                await NotificationsListener.openPermissionSettings();
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(content: Text('Please enable access, then return and tap this again to start.')),
-                                  );
-                                }
-                              } else {
-                                bool isRunning = await NotificationsListener.isRunning ?? false;
-                                if (!isRunning) {
-                                  await NotificationsListener.startService(foreground: false);
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Background service started successfully!')),
-                                    );
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          FutureBuilder<bool?>(
+                            future: NotificationsListener.hasPermission,
+                            builder: (context, snapshot) {
+                              final hasPermission = snapshot.data ?? false;
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Android Notification Access', style: TextStyle(color: Colors.white)),
+                                subtitle: Text(
+                                  hasPermission ? 'Access Granted. Active in background.' : 'Tap to enable Android notification access',
+                                  style: TextStyle(color: hasPermission ? Colors.greenAccent : Colors.white54),
+                                ),
+                                trailing: Icon(
+                                  hasPermission ? Icons.check_circle : Icons.warning,
+                                  color: hasPermission ? Colors.greenAccent : Colors.orangeAccent,
+                                ),
+                                onTap: () async {
+                                  if (!hasPermission) {
+                                    await NotificationsListener.openPermissionSettings();
+                                  } else {
+                                    bool isRunning = await NotificationsListener.isRunning ?? false;
+                                    if (!isRunning) {
+                                      await NotificationsListener.startService(foreground: true, title: 'Robot Notification Watcher');
+                                    }
                                   }
-                                } else {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('Service is already running and listening.')),
-                                    );
-                                  }
-                                }
-                              }
+                                },
+                              );
                             },
-                          );
-                        },
+                          ),
+                          const Divider(color: Colors.white24),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: const Text('Enable Mirroring to Robot', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            activeThumbColor: Colors.greenAccent,
+                            value: _notifMaster,
+                            onChanged: (val) {
+                              setState(() => _notifMaster = val);
+                              _saveToggle('notif_master', val);
+                            },
+                          ),
+                          if (_notifMaster) ...[
+                            const SizedBox(height: 8),
+                            const Text('Allowed Apps:', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                            const SizedBox(height: 4),
+                            ..._notifApps.keys.map((app) {
+                              String label = app[0].toUpperCase() + app.substring(1);
+                              return SwitchListTile(
+                                contentPadding: const EdgeInsets.only(left: 16.0),
+                                title: Text(label, style: const TextStyle(color: Colors.white)),
+                                activeThumbColor: Colors.greenAccent,
+                                value: _notifApps[app]!,
+                                onChanged: (val) {
+                                  setState(() => _notifApps[app] = val);
+                                  _saveToggle('notif_app_$app', val);
+                                },
+                              );
+                            }),
+                          ],
+                        ],
                       ),
                     ),
+
                     const SizedBox(height: 16),
                     
                     // --- POMODORO TIMER ---
