@@ -1,6 +1,7 @@
 #include "RobotEyes.h"
 #include <math.h>
 #include "WarningAnimation.h"
+#include "app_icons.h"
 
 static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t color) {
   int innerRadius = radius / 2;
@@ -19,54 +20,41 @@ static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t co
   }
 }
 
-static void drawAppLogo(LGFX_Sprite *spr, String app, int cx, int cy, int size) {
-    if (app == "whatsapp") {
-        spr->fillCircle(cx, cy, size, 0x2591); // #25D366 (Green) -> RGB565 approx
-        spr->drawArc(cx, cy, size/2, size/2 - 2, 45, 225, TFT_WHITE);
-        spr->fillTriangle(cx - size/2, cy + size/2, cx - size/4, cy + size/4, cx - size/2, cy + size/6, TFT_WHITE);
-    } else if (app == "youtube") {
-        spr->fillRoundRect(cx - size, cy - (int)(size*0.7f), size*2, (int)(size*1.4f), size/4, 0xF800); // Red
-        spr->fillTriangle(cx - size/4, cy - size/3, cx - size/4, cy + size/3, cx + size/2, cy, TFT_WHITE);
-    } else if (app == "facebook") {
-        spr->fillRoundRect(cx - size, cy - size, size*2, size*2, size/3, 0x187F); // #1877F2 (Blue)
-        spr->fillRect(cx, cy - size/2, size/3, size, TFT_WHITE);
-        spr->fillRect(cx - size/4, cy, (int)(size*0.8f), size/4, TFT_WHITE);
-    } else if (app == "instagram") {
-        spr->fillRoundRect(cx - size, cy - size, size*2, size*2, size/3, 0xD12E); // Magenta/Pink approx
-        spr->drawRoundRect(cx - (int)(size*0.65f), cy - (int)(size*0.65f), (int)(size*1.3f), (int)(size*1.3f), size/4, TFT_WHITE);
-        spr->drawCircle(cx, cy, size/3, TFT_WHITE);
-        spr->fillCircle(cx + size/3, cy - size/3, size/8, TFT_WHITE);
-    } else if (app == "tiktok") {
-        spr->fillRoundRect(cx - size, cy - size, size*2, size*2, size/3, TFT_BLACK);
-        // Cyan shadow
-        spr->drawFastVLine(cx - size/4 - 1, cy - size/2, size, 0x07FF);
-        spr->drawCircle(cx - size/2 - 1, cy + size/4, size/3, 0x07FF);
-        // Red shadow
-        spr->drawFastVLine(cx - size/4 + 1, cy - size/2, size, 0xF800);
-        spr->drawCircle(cx - size/2 + 1, cy + size/4, size/3, 0xF800);
-        // White main
-        spr->drawFastVLine(cx - size/4, cy - size/2, size, TFT_WHITE);
-        spr->drawCircle(cx - size/2, cy + size/4, size/3, TFT_WHITE);
-    } else if (app == "telegram") {
-        spr->fillCircle(cx, cy, size, 0x24B7); // #24A1DE
-        spr->fillTriangle(cx - size/2, cy, cx + size/2, cy - size/2, cx + size/4, cy + size/2, TFT_WHITE);
-        spr->fillTriangle(cx, cy + size/6, cx + size/2, cy - size/2, cx + size/4, cy + size/2, 0xCE79); // Shadow
-    } else if (app == "gmail") {
-        spr->fillRoundRect(cx - size, cy - (int)(size*0.7f), size*2, (int)(size*1.4f), size/4, TFT_WHITE);
-        spr->drawRoundRect(cx - size, cy - (int)(size*0.7f), size*2, (int)(size*1.4f), size/4, 0xCE79); // border
-        spr->drawLine(cx - size, cy - (int)(size*0.7f), cx, cy + size/4, 0xF800);
-        spr->drawLine(cx + size, cy - (int)(size*0.7f), cx, cy + size/4, 0xF800);
-    } else if (app == "sms") {
-        spr->fillCircle(cx, cy, size, 0x041F); // Blue
-        spr->fillRoundRect(cx - (int)(size*0.6f), cy - size/2, (int)(size*1.2f), size, size/4, TFT_WHITE);
-        spr->fillTriangle(cx - size/2, cy + size/2, cx - size/4, cy + size/2, cx - (int)(size*0.6f), cy + (int)(size*0.8f), TFT_WHITE);
-    } else if (app == "phone") {
-        spr->fillCircle(cx, cy, size, 0x0540); // Dark Green
-        spr->fillRoundRect(cx - (int)(size*0.6f), cy - size/4, (int)(size*1.2f), size/2, size/4, TFT_WHITE);
+// Returns the brand accent color for each app (RGB565)
+static uint16_t getAppColor(const String& app) {
+    if (app == "whatsapp")  return 0x07E0; // Green  #00FF00 approx
+    if (app == "youtube")   return 0xF800; // Red
+    if (app == "facebook")  return 0x001F; // Blue
+    if (app == "instagram") return 0xE81F; // Magenta
+    if (app == "gmail")     return 0xF800; // Red
+    if (app == "sms")       return 0x041F; // Blue
+    if (app == "phone")     return 0x07E0; // Green
+    if (app == "telegram")  return 0x24B7; // Telegram Blue
+    if (app == "tiktok")    return 0xFFFF; // White on black
+    return TFT_WHITE;
+}
+
+// Draw a 16x16 app icon bitmap using the brand color at position (x,y)
+static void drawToastIcon(LGFX_Sprite *spr, const String& app, int x, int y) {
+    uint16_t color = getAppColor(app);
+    const uint8_t* bmp = nullptr;
+    
+    if      (app == "whatsapp")  bmp = icon_whatsapp;
+    else if (app == "youtube")   bmp = icon_youtube;
+    else if (app == "facebook")  bmp = icon_facebook;
+    else if (app == "instagram") bmp = icon_instagram;
+    else if (app == "gmail")     bmp = icon_gmail;
+    else if (app == "sms")       bmp = icon_sms;
+    else if (app == "phone")     bmp = icon_phone;
+    else if (app == "telegram")  bmp = icon_telegram;
+    else if (app == "tiktok")    bmp = icon_tiktok;
+    
+    if (bmp) {
+        // Draw with brand color on black background
+        spr->drawBitmap(x, y, bmp, APP_ICON_W, APP_ICON_H, color, (uint16_t)TFT_BLACK);
     } else {
-        // Generic Bell
-        spr->fillCircle(cx, cy, size, 0xFD20); // Orange
-        spr->fillCircle(cx, cy, size/2, TFT_WHITE);
+        // Fallback: colored square with first letter
+        spr->fillRect(x, y, APP_ICON_W, APP_ICON_H, color);
     }
 }
 
@@ -197,9 +185,7 @@ void RobotEyes::setEmotion(Emotion e)
   }
   else if (e == NOTIFICATION)
   {
-    targetX = 0;
-    targetY = 20.0f; // Look down at the notification
-    easeFactor = 0.2f;
+    // Toast overlay — no emotion change needed (kept for enum completeness)
   }
   else if (e == WARNING_ANIM)
   {
@@ -222,18 +208,11 @@ void RobotEyes::setEmotion(Emotion e)
 }
 
 void RobotEyes::triggerNotification(String appName, String sender) {
-    if (currentEmotion != CLOCK_MODE && currentEmotion != NEUTRAL && currentEmotion != SLEEPY && currentEmotion != ASLEEP) {
-        // Do not interrupt Pomodoro or Guard mode or Alarm
-        return;
-    }
-    if (timerActive) return; // Do not interrupt pomodoro timer overlay
-    
-    notifRestoreEmotion = currentEmotion; // Save state to restore after timeout
     notifAppName = appName;
-    notifSender = sender;
-    notifTimer = millis();
-    notifTimeout = millis() + 5500; // 5.5s: 5s animation + 0.5s buffer
-    setEmotion(NOTIFICATION);
+    notifSender  = sender;
+    toastActive  = true;
+    toastY       = -30.0f;
+    toastShowUntil = millis() + 5000;
 }
 
 void RobotEyes::lookAt(float x, float y)
@@ -267,15 +246,15 @@ void RobotEyes::update()
 
   unsigned long now = millis();
 
-  // --- NOTIFICATION AUTO-TIMEOUT ---
-  if (currentEmotion == NOTIFICATION) {
-    if (notifTimeout > 0 && now > notifTimeout) {
-      currentEmotion = notifRestoreEmotion;
-      notifTimeout = 0;
-      notifAppName = "";
-      notifSender = "";
+  // --- NOTIFICATION TOAST SLIDE (runs independently of emotion) ---
+  if (toastActive) {
+    float target = (now < toastShowUntil - 400) ? 3.0f : -32.0f;
+    toastY += (target - toastY) * 0.18f;
+    if (now >= toastShowUntil && toastY < -28.0f) {
+      toastActive   = false;
+      notifAppName  = "";
+      notifSender   = "";
     }
-    return; // No further animation updates during notification
   }
 
   // --- DIZZY ANIMATION ---
@@ -1367,59 +1346,30 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->fillRect(0, 124, barWidth, 4, TFT_GREEN);
   }
 
-  // --- DRAW WEATHER INFO ---
-  if (weatherIcon != "") {
+  // --- DRAW NOTIFICATION TOAST (top-right corner, runs over any emotion) ---
+  if (toastActive && toastY > -25.0f) {
+    int ty  = (int)toastY;
+    int tw  = 95;   // toast width
+    int th  = 22;   // toast height
+    int tx  = 158;  // right edge x
+
+    // Dark pill background with subtle border
+    spr->fillRoundRect(tx - tw, ty, tw, th, 6, 0x18A3);   // dark blueish-grey
+    spr->drawRoundRect(tx - tw, ty, tw, th, 6, 0x4208);   // slightly lighter border
+
+    // Brand-colored 16x16 icon on the left side of the toast
+    int iconX = tx - tw + 3;
+    int iconY = ty + (th - APP_ICON_H) / 2;
+    drawToastIcon(spr, notifAppName, iconX, iconY);
+
+    // Sender name — truncate to fit
+    String label = notifSender;
+    if (label.length() > 9) label = label.substring(0, 8) + ".";
     spr->setTextFont(1);
     spr->setTextSize(1);
-    spr->setTextDatum(textdatum_t::top_right);
-    spr->setTextColor(TFT_WHITE, TFT_BLACK); // Make it bright white to ensure visibility
-    
-    String wStr;
-    if (weatherIcon == "loading") {
-        int spin = (millis() / 200) % 4;
-        if (spin == 0) wStr = " - ";
-        else if (spin == 1) wStr = " \\ ";
-        else if (spin == 2) wStr = " | ";
-        else if (spin == 3) wStr = " / ";
-    } else {
-        wStr = String((int)weatherTemp) + "C ";
-        if (weatherIcon == "sun") wStr += "O"; // Use O as sun symbol in basic font
-        else if (weatherIcon == "cloud") wStr += "C"; // C as cloud
-        else if (weatherIcon == "rain") wStr += "R"; // R as rain
-    }
-    
-    spr->drawString(wStr, 155, 5);
-  }
-
-  // --- DRAW NOTIFICATION MIRRORING ---
-  if (currentEmotion == NOTIFICATION) {
-    float timeElapsed = millis() - notifTimer;
-    float scale = 1.0f;
-    float yOffset = 0;
-    
-    // Fluid animation: bounce up, hold, then scale down
-    if (timeElapsed < 500) {
-      scale = timeElapsed / 500.0f;
-      yOffset = 30.0f * (1.0f - scale);
-    } else if (timeElapsed > 4500) {
-      scale = (5000 - timeElapsed) / 500.0f;
-      if (scale < 0) scale = 0;
-    }
-    
-    if (scale > 0.05f) {
-      int cx = 80;
-      int cy = 90 + (int)yOffset; // Draw lower so eyes can look down at it
-      int size = (int)(24 * scale);
-      
-      drawAppLogo(spr, notifAppName, cx, cy, size);
-      
-      // Draw sender name
-      spr->setTextDatum(textdatum_t::top_center);
-      spr->setTextColor(TFT_WHITE, TFT_BLACK);
-      spr->setTextSize(1);
-      spr->setTextFont(1);
-      spr->drawString(notifSender, cx, cy + size + 4);
-    }
+    spr->setTextDatum(textdatum_t::middle_left);
+    spr->setTextColor(TFT_WHITE);
+    spr->drawString(label, iconX + APP_ICON_W + 3, ty + th / 2);
   }
 }
 

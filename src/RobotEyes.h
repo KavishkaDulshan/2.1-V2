@@ -217,10 +217,12 @@ public:
   // --- NOTIFICATION MIRRORING ---
   void triggerNotification(String appName, String sender);
   String notifAppName = "";
-  String notifSender = "";
-  unsigned long notifTimer = 0;
-  unsigned long notifTimeout = 0;
-  Emotion notifRestoreEmotion = NEUTRAL;
+  String notifSender  = "";
+
+  // --- TOAST OVERLAY STATE ---
+  bool  toastActive    = false;
+  float toastY         = -30.0f;  // current Y (off-screen when -30)
+  unsigned long toastShowUntil = 0;
 
   // --- UTILITY DATA ---
   String timeString = "00:00";
