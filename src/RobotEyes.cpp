@@ -742,13 +742,15 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   // --- STATUS BAR ---
   if (enableStatusBar) {
     // Semi-transparent dark background effect using solid dark color
-    spr->fillRect(0, 0, 160, 16, 0x10A2); // Very dark blue/grey, increased height to 16
+    spr->fillRect(0, 0, 160, 20, 0x10A2); // Very dark blue/grey, increased height to 20
     
     // Draw WiFi Icon (top-left, drawn natively)
     if (sbShowWifi) {
-      int wx = 12, wy = 13; // Base of the wifi icon
+      int wx = 12, wy = 17; // Base of the wifi icon, moved down 4 pixels
       uint8_t wifiLevel = 3; 
+      uint16_t wifiColor = TFT_GREEN;
       if (WiFi.status() != WL_CONNECTED) {
+        wifiColor = TFT_YELLOW;
         if (millis() - lastWifiFrameTime > 400) {
           currentWifiFrame = (currentWifiFrame + 1) % 4; // cycles 0,1,2,3
           lastWifiFrameTime = millis();
@@ -757,13 +759,13 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       }
       
       if (wifiLevel > 0) {
-        spr->fillCircle(wx, wy, 1, TFT_WHITE); // Dot
+        spr->fillCircle(wx, wy, 1, wifiColor); // Dot
       }
       if (wifiLevel > 1) {
-        spr->fillArc(wx, wy, 3, 4, 225, 315, TFT_WHITE); // Inner arc
+        spr->fillArc(wx, wy, 3, 4, 225, 315, wifiColor); // Inner arc
       }
       if (wifiLevel > 2) {
-        spr->fillArc(wx, wy, 6, 7, 225, 315, TFT_WHITE); // Outer arc
+        spr->fillArc(wx, wy, 6, 7, 225, 315, wifiColor); // Outer arc
       }
     }
     
@@ -773,7 +775,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       spr->setTextSize(1);
       spr->setTextDatum(textdatum_t::top_right);
       spr->setTextColor(TFT_LIGHTGREY);
-      spr->drawString(timeString, 158, 0); // Moved down slightly (from -1 to 0)
+      spr->drawString(timeString, 158, 4); // Moved down 4 pixels
     }
   }
 
