@@ -24,6 +24,9 @@ long  gmtOffset_sec = 19800; // Default +5:30 (India)
 int   daylightOffset_sec = 0;
 bool  timeConfigured = false;
 
+#include <fvad.h>
+Fvad *vad_inst = NULL;
+
 String weatherCity = "London,UK";
 long  weatherTimezoneOffset = 0; // UTC offset in seconds from OpenWeatherMap (e.g. 19800 for IST)
 bool  weatherTimezoneReady = false; // false = use NTP local time, true = use city offset
@@ -183,6 +186,37 @@ void audioInferenceTask(void *pvParameters) {
           signal.total_length = EI_CLASSIFIER_RAW_SAMPLE_COUNT;
           signal.get_data = &microphone_audio_signal_get_data;
 
+          // --- WebRTC VAD Processing ---
+          // WebRTC VAD supports 10, 20, or 30ms frames. At 16kHz, 30ms = 480 samples.
+          int frame_length = 480; 
+          int num_frames = EI_CLASSIFIER_RAW_SAMPLE_COUNT / frame_length; // 16000 / 480 = 33 frames (990ms)
+          int speech_frames = 0;
+
+          if (vad_inst != NULL) {
+              int16_t vad_chunk[480]; // Allocate small buffer on stack (960 bytes instead of 32KB)
+              
+              for (int i = 0; i < num_frames; i++) {
+                  // Extract this frame's 480 samples from the ring buffer
+                  int start_idx = i * frame_length;
+                  for (int j = 0; j < frame_length; j++) {
+                      vad_chunk[j] = audio_buffer[(ring_position + start_idx + j) % EI_CLASSIFIER_RAW_SAMPLE_COUNT];
+                  }
+                  
+                  int vad_res = fvad_process(vad_inst, vad_chunk, frame_length);
+                  if (vad_res == 1) {
+                      speech_frames++;
+                  }
+              }
+          } else {
+              speech_frames = 10; // Bypass if VAD failed to init
+          }
+
+          if (speech_frames < 3) {
+              if (!DEBUG_AUDIO_WAVE) Serial.printf("❌ VAD: Only %d/33 speech frames. Skipping AI.\n", speech_frames);
+              max_amplitude = 0; // Reset amplitude
+              continue;
+          }
+
           ei_impulse_result_t result = { 0 };
           EI_IMPULSE_ERROR err = run_classifier(&signal, &result, false);
           if (err != EI_IMPULSE_OK) {
@@ -341,6 +375,16 @@ void setup() {
   weatherTimezoneOffset = preferences.getLong("tz_offset", 19800);
   if (preferences.isKey("tz_offset")) {
       weatherTimezoneReady = true;
+  }
+
+  // Initialize WebRTC VAD
+  vad_inst = fvad_new();
+  if (vad_inst) {
+      fvad_set_sample_rate(vad_inst, 16000);
+      fvad_set_mode(vad_inst, 2); // Mode 2: Aggressive filtering
+      Serial.println("WebRTC VAD Initialized (Mode 2)");
+  } else {
+      Serial.println("ERR: WebRTC VAD Initialization failed!");
   }
 
   // Initialize BLE Server for Provisioning FIRST to guarantee memory
