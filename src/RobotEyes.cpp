@@ -1433,6 +1433,61 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         spr->clearClipRect();
     }
   }
+  
+  // --- DRAW LLM SPEECH BUBBLE ---
+  if (millis() < speechBubbleTimer) {
+      // Draw a semi-transparent dark background over the entire screen
+      // Since LGFX doesn't have an easy alpha fill for the whole screen without a custom sprite, 
+      // we'll just draw a solid dark pill or box for the bubble.
+      
+      int margin = 10;
+      int bW = 160 - (margin * 2);
+      int bH = 60;
+      int bX = margin;
+      int bY = 128 - bH - margin; // Bottom of the screen
+
+      // Bubble Background
+      spr->fillRoundRect(bX, bY, bW, bH, 8, 0x2104); // Dark greyish-blue
+      spr->drawRoundRect(bX, bY, bW, bH, 8, 0x52AA); // Lighter border
+      
+      // Little chat bubble tail
+      spr->fillTriangle(bX + 20, bY, bX + 26, bY - 6, bX + 32, bY, 0x2104);
+      spr->drawLine(bX + 20, bY, bX + 26, bY - 6, 0x52AA);
+      spr->drawLine(bX + 26, bY - 6, bX + 32, bY, 0x52AA);
+
+      // Draw Text
+      spr->setTextFont(1);
+      spr->setTextSize(1);
+      spr->setTextColor(TFT_WHITE);
+      spr->setTextDatum(textdatum_t::top_left);
+      
+      // Simple text wrapping for the tiny screen
+      int cursorX = bX + 6;
+      int cursorY = bY + 6;
+      int maxTextWidth = bW - 12;
+      
+      String word = "";
+      for (size_t i = 0; i <= speechBubbleText.length(); i++) {
+          char c = (i < speechBubbleText.length()) ? speechBubbleText[i] : ' ';
+          if (c == ' ' || i == speechBubbleText.length()) {
+              int wWidth = spr->textWidth(word + " ");
+              if (cursorX + wWidth > bX + maxTextWidth) {
+                  cursorX = bX + 6;
+                  cursorY += 12; // Next line
+              }
+              spr->drawString(word, cursorX, cursorY);
+              cursorX += wWidth;
+              word = "";
+          } else {
+              word += c;
+          }
+      }
+  }
+}
+
+void RobotEyes::showSpeechBubble(String text) {
+    speechBubbleText = text;
+    speechBubbleTimer = millis() + 8000; // Show for 8 seconds
 }
 
 void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride, int hOverride)

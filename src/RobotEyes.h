@@ -224,6 +224,11 @@ public:
   float toastY         = -30.0f;  // current Y (off-screen when -30)
   unsigned long toastShowUntil = 0;
 
+  // --- LLM SPEECH BUBBLE ---
+  String speechBubbleText = "";
+  unsigned long speechBubbleTimer = 0;
+  void showSpeechBubble(String text);
+
   // --- UTILITY DATA ---
   String timeString = "00:00";
   int    clockHour  = 12; // 0-23 for sky color logic

@@ -12,6 +12,8 @@
 #include "RobotEyes.h"
 #include <ArduinoJson.h>
 #include "BleManager.h"
+#include "RobotEyes.h"
+#include "GroqClient.h"
 #include "MqttManager.h"
 #include <time.h>
 #include <ArduinoJson.h>
@@ -149,6 +151,15 @@ int microphone_audio_signal_get_data(size_t offset, size_t length, float *out_pt
     return 0;
 }
 
+// --- LLM Recording State ---
+#define MAX_RECORDING_SAMPLES 160000 // 10 seconds at 16kHz
+int16_t* llm_record_buffer = nullptr;
+volatile bool is_recording_llm = false;
+volatile size_t llm_record_index = 0;
+volatile bool llm_process_pending = false;
+volatile bool llm_armed = false;       // True while user holds touch sensor
+volatile unsigned long lastTouchMs = 0; // Global: last millis() touch was HIGH
+
 void i2sReadTask(void *pvParameters) {
     int32_t mic_dma_chunk[AUDIO_CHUNK_SIZE];
     while(true) {
@@ -163,6 +174,17 @@ void i2sReadTask(void *pvParameters) {
                 
                 int16_t sample16 = (int16_t)amplified;
                 audio_buffer[ring_position] = sample16;
+                
+                if (is_recording_llm && llm_record_buffer != nullptr) {
+                    if (llm_record_index < MAX_RECORDING_SAMPLES) {
+                        llm_record_buffer[llm_record_index++] = sample16;
+                    } else {
+                        // Hard cap at 10 seconds reached
+                        is_recording_llm = false;
+                        llm_process_pending = true;
+                    }
+                }
+
                 ring_position = (ring_position + 1) % EI_CLASSIFIER_RAW_SAMPLE_COUNT;
                 
                 if (abs(sample16) > max_amplitude) max_amplitude = abs(sample16);
@@ -272,6 +294,44 @@ void audioInferenceTask(void *pvParameters) {
   }
 }
 
+// --- LLM Background Task ---
+void llmTask(void *pvParameters) {
+    while (true) {
+        if (llm_process_pending) {
+            llm_process_pending = false;
+            
+            if (llm_record_index > 0) {
+                Serial.printf("🧠 llmTask: Processing %u samples...\n", llm_record_index);
+                // Change UI to "Thinking" state
+                eyes.setEmotion(DIZZY);
+                eyes.showSpeechBubble("Thinking...");
+                emotionOverrideTimer = millis() + 30000;
+                hasEmotionOverride = true;
+                
+                String transcribedText = GroqClient::transcribeAudio(llm_record_buffer, llm_record_index);
+                
+                if (transcribedText.length() > 0) {
+                    Serial.println("You said: " + transcribedText);
+                    
+                    String answer = GroqClient::chatCompletion(transcribedText);
+                    Serial.println("Robot answers: " + answer);
+                    
+                    eyes.showSpeechBubble(answer);
+                } else {
+                    Serial.println("🧠 llmTask: Transcribed text was empty.");
+                    eyes.showSpeechBubble("Could not hear you properly.");
+                }
+            } else {
+                Serial.println("🧠 llmTask: Record index was 0, ignoring!");
+            }
+            llm_record_index = 0;
+            // Restore emotion state after bubble goes away
+            hasEmotionOverride = false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
 void weatherTask(void *pvParameters) {
     while (true) {
         if (WiFi.status() == WL_CONNECTED) {
@@ -368,6 +428,30 @@ void setup() {
   Serial.begin(115200);
   delay(3000); 
 
+  // Allocate LLM Record Buffer in PSRAM using Arduino ps_malloc API
+  // (board_build.arduino.memory_type = qio_opi already initializes OPI PSRAM)
+  Serial.printf("PSRAM found: %s, PSRAM size: %u bytes\n", 
+      psramFound() ? "YES" : "NO", ESP.getPsramSize());
+  
+  if (psramFound()) {
+      llm_record_buffer = (int16_t*)ps_malloc(MAX_RECORDING_SAMPLES * sizeof(int16_t));
+      if (llm_record_buffer) {
+          Serial.printf("✅ LLM Record Buffer allocated in PSRAM at %p (320KB)\n", (void*)llm_record_buffer);
+      } else {
+          Serial.println("❌ ERR: ps_malloc failed for LLM buffer!");
+      }
+  }
+  
+  if (!llm_record_buffer) {
+      // Fallback: smaller buffer in internal RAM (5s @ 16kHz)
+      llm_record_buffer = (int16_t*)malloc(80000 * sizeof(int16_t));
+      if (llm_record_buffer) {
+          Serial.println("⚠️ LLM buffer in internal RAM (5s max)");
+      } else {
+          Serial.println("❌ ERR: All LLM buffer allocations failed! LLM disabled.");
+      }
+  }
+
   preferences.begin("robot", false);
   savedSsid = preferences.getString("ssid", "");
   savedPass = preferences.getString("pass", "");
@@ -463,6 +547,9 @@ void setup() {
   
   // Start Weather Task
   xTaskCreatePinnedToCore(weatherTask, "WeatherTask", 8192, NULL, 1, &weatherTaskHandle, 1);
+  
+  // Start LLM Task
+  xTaskCreatePinnedToCore(llmTask, "LLMTask", 16384, NULL, 1, NULL, 1);
   
   lastInteractionTime = millis();
 }
@@ -625,7 +712,18 @@ void loop() {
       physicallyMoved = true;
   }
 
-  bool isTouched = (digitalRead(TOUCH_PIN) == HIGH);
+  // --- TOUCH SENSOR (Global tracking for LLM arm state) ---
+  bool rawTouched = (digitalRead(TOUCH_PIN) == HIGH);
+  if (rawTouched) {
+      lastTouchMs = millis();
+  }
+  // 800ms debounce window to survive TTP223 recalibration dropout
+  bool isTouched = (millis() - lastTouchMs < 800);
+  
+  // Update the LLM arm flag: armed = user is currently holding the sensor
+  llm_armed = isTouched;
+  if (!isTouched) llm_armed = false;
+  
   static bool wasTouched = false;
   static unsigned long lastTapTime = 0;
   static int tapCount = 0;
@@ -682,16 +780,35 @@ void loop() {
           hasEmotionOverride = false; // Persistent state, no timeout
       } else if (keyword_wake_word) {
           guardMode = false; // Only wake_word drops guard mode
-          if (isSleeping) {
-              eyes.setEmotion(WAKEUP);
-              emotionOverrideTimer = millis();
-              hasEmotionOverride  = true;
-          } else if (curEmotion != ANGRY && curEmotion != DIZZY && !innocentOverride) {
-              eyes.setEmotion(INNOCENT); 
-              emotionOverrideTimer = millis();
-              hasEmotionOverride   = true;
-              innocentOverride     = true;
-              innocentReleaseTime  = 0;
+          
+          // Arm check: user must be holding (or recently held within 3s) the touch sensor
+          bool touchedForLlm = llm_armed || (millis() - lastTouchMs < 3000);
+          Serial.printf("[DBG] wake_word fired. llm_armed=%d lastTouchMs=%lu delta=%lu buffer=%p recording=%d\n",
+              (int)llm_armed, lastTouchMs, millis() - lastTouchMs,
+              (void*)llm_record_buffer, (int)is_recording_llm);
+          
+          if (touchedForLlm && !is_recording_llm && llm_record_buffer != nullptr) {
+              Serial.println("\U0001f3999\ufe0f LLM Recording Started!");
+              is_recording_llm = true;
+              llm_record_index = 0;
+              eyes.setEmotion(INNOCENT);
+              emotionOverrideTimer = millis() + 15000;
+              hasEmotionOverride = true;
+              innocentOverride = true;
+              innocentReleaseTime = 0;
+          } else if (!touchedForLlm) {
+              Serial.println("[DBG] Wake word fired but sensor NOT held — normal wake animation");
+              if (isSleeping) {
+                  eyes.setEmotion(WAKEUP);
+                  emotionOverrideTimer = millis();
+                  hasEmotionOverride  = true;
+              } else if (curEmotion != ANGRY && curEmotion != DIZZY && !innocentOverride) {
+                  eyes.setEmotion(INNOCENT);
+                  emotionOverrideTimer = millis();
+                  hasEmotionOverride   = true;
+                  innocentOverride     = true;
+                  innocentReleaseTime  = 0;
+              }
           }
       }
 
@@ -762,6 +879,12 @@ void loop() {
       lastInteractionTime = millis();
   }
 
+  if (!isTouched && is_recording_llm) {
+      Serial.printf("🛑 LLM Recording Stopped (Touch Released) - Captured %u samples\n", llm_record_index);
+      is_recording_llm = false;
+      llm_process_pending = true;
+  }
+  
   wasTouched = isTouched;
   curEmotion = eyes.getEmotion();
   
