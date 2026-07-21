@@ -138,4 +138,17 @@ class BleState extends ChangeNotifier {
       return false;
     }
   }
+
+  Future<bool> sendGroqApiKey(String apiKey) async {
+    if (provisionCharacteristic == null) return false;
+    
+    final payload = jsonEncode({"groq_api_key": apiKey});
+    try {
+      await provisionCharacteristic!.write(utf8.encode(payload), withoutResponse: false);
+      return true;
+    } catch (e) {
+      debugPrint("Write API key error: $e");
+      return false;
+    }
+  }
 }

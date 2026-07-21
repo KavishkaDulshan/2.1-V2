@@ -1,5 +1,6 @@
 #include "BleManager.h"
 #include <ArduinoJson.h> // We will use JSON to pass {"ssid":"...", "pass":"..."}
+#include <Preferences.h>
 
 bool BleManager::deviceConnected = false;
 bool BleManager::credentialsReceived = false;
@@ -33,8 +34,8 @@ void BleManager::CharacteristicCallbacks::onWrite(NimBLECharacteristic* pCharact
         }
         Serial.println(receivedStr);
 
-        // Expecting JSON: {"ssid":"network_name", "pass":"password123"}
-        StaticJsonDocument<256> doc;
+        // Expecting JSON: {"ssid":"network_name", "pass":"password123"} or {"groq_api_key":"gsk_..."}
+        StaticJsonDocument<512> doc;
         DeserializationError error = deserializeJson(doc, receivedStr);
         
         if (!error) {
@@ -43,6 +44,15 @@ void BleManager::CharacteristicCallbacks::onWrite(NimBLECharacteristic* pCharact
                 wifiPassword = doc["pass"].as<String>();
                 credentialsReceived = true;
                 Serial.println("Wi-Fi Credentials Parsed Successfully!");
+            }
+            
+            if (doc.containsKey("groq_api_key")) {
+                String apiKey = doc["groq_api_key"].as<String>();
+                if (apiKey.length() > 0) {
+                    extern Preferences preferences;
+                    preferences.putString("groq_key", apiKey);
+                    Serial.println("Groq API Key Saved to NVS Successfully!");
+                }
             }
         } else {
             Serial.println("Failed to parse JSON credentials.");

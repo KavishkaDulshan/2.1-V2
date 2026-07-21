@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../models/mqtt_state.dart';
+import '../models/ble_state.dart';
 import 'package:flutter_notification_listener/flutter_notification_listener.dart';
 
 class UtilitiesScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class UtilitiesScreen extends StatefulWidget {
 
 class _UtilitiesScreenState extends State<UtilitiesScreen> {
   final TextEditingController _cityController = TextEditingController();
+  final TextEditingController _apiKeyController = TextEditingController();
   
   Timer? _pomodoroTimer;
   int _timeRemaining = 0; // in seconds
@@ -113,6 +115,7 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
   void dispose() {
     _pomodoroTimer?.cancel();
     _cityController.dispose();
+    _apiKeyController.dispose();
     super.dispose();
   }
 
@@ -240,6 +243,125 @@ class _UtilitiesScreenState extends State<UtilitiesScreen> {
                           final mode = value ? "clock" : "eyes";
                           context.read<MqttState>().publish("robot21/commands/master", '{"mode": "$mode"}');
                         },
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // --- AI SETTINGS ---
+                    _buildGlassCard(
+                      context,
+                      title: 'AI Settings',
+                      icon: Icons.psychology,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Groq API Key (Llama 3)', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _apiKeyController,
+                                  obscureText: true,
+                                  style: const TextStyle(color: Colors.white),
+                                  decoration: InputDecoration(
+                                    hintText: 'gsk_...',
+                                    hintStyle: const TextStyle(color: Colors.white30),
+                                    filled: true,
+                                    fillColor: Colors.white.withOpacity(0.1),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.blueAccent,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                                ),
+                                onPressed: () async {
+                                  final key = _apiKeyController.text.trim();
+                                  if (key.isEmpty) return;
+                                  
+                                  // Send over MQTT
+                                  final mqttState = context.read<MqttState>();
+                                  if (!mqttState.isConnected) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Not connected to Robot via Wi-Fi (MQTT)')),
+                                    );
+                                    return;
+                                  }
+                                  
+                                  mqttState.publish("robot21/commands/master", '{"groq_api_key": "$key"}');
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('API Key sent to Robot!')),
+                                    );
+                                    _apiKeyController.clear();
+                                  }
+                                },
+                                child: const Icon(Icons.send, color: Colors.white, size: 20),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    
+                    // --- DANGER ZONE ---
+                    _buildGlassCard(
+                      context,
+                      title: 'Danger Zone',
+                      icon: Icons.warning_amber_rounded,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text('Unpairing will wipe all Wi-Fi and API keys from the robot and reboot it into setup mode.', 
+                            style: TextStyle(color: Colors.white70, fontSize: 12)),
+                          const SizedBox(height: 12),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.redAccent.withOpacity(0.8),
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                            ),
+                            onPressed: () {
+                              showDialog(
+                                context: context,
+                                builder: (ctx) => AlertDialog(
+                                  backgroundColor: const Color(0xFF1E1B4B),
+                                  title: const Text('Factory Reset', style: TextStyle(color: Colors.white)),
+                                  content: const Text('Are you sure you want to unpair the robot? This cannot be undone.', style: TextStyle(color: Colors.white70)),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(ctx),
+                                      child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
+                                    ),
+                                    TextButton(
+                                      onPressed: () {
+                                        Navigator.pop(ctx);
+                                        context.read<MqttState>().publish("robot21/commands/master", '{"unpair": true}');
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Unpair command sent! Robot is rebooting...')),
+                                        );
+                                      },
+                                      child: const Text('Unpair', style: TextStyle(color: Colors.redAccent)),
+                                    ),
+                                  ],
+                                )
+                              );
+                            },
+                            icon: const Icon(Icons.delete_forever),
+                            label: const Text('Unpair & Factory Reset', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(height: 16),

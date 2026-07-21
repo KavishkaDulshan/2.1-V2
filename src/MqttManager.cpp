@@ -58,8 +58,32 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
                 else if (emotionStr == "panic") eyes->setEmotion(PANIC);
                 else if (emotionStr == "innocent") eyes->setEmotion(INNOCENT);
                 else if (emotionStr == "clock") { eyes->setEmotion(CLOCK_MODE); eyes->baseEmotion = CLOCK_MODE; }
+                else if (emotionStr == "eyes") { eyes->setEmotion(HAPPY); eyes->baseEmotion = HAPPY; }
                 else { eyes->setEmotion(NEUTRAL); eyes->baseEmotion = NEUTRAL; }
             }
+        }
+        
+        if (doc.containsKey("groq_api_key")) {
+            String apiKey = doc["groq_api_key"].as<String>();
+            if (apiKey.length() > 0) {
+                preferences.putString("groq_key", apiKey);
+                Serial.println("MQTT: Groq API Key Saved to NVS Successfully!");
+                if (eyes != nullptr) {
+                    eyes->setEmotion(HAPPY);
+                    eyes->showSpeechBubble("API Key Received!");
+                }
+            }
+        }
+
+        if (doc.containsKey("unpair") && doc["unpair"].as<bool>() == true) {
+            Serial.println("MQTT: Unpair command received! Wiping NVS and rebooting...");
+            if (eyes != nullptr) {
+                eyes->setEmotion(PANIC);
+                eyes->showSpeechBubble("Factory Reset...");
+                delay(2000); // Allow time to render before death
+            }
+            preferences.clear();
+            ESP.restart();
         }
         
         if (doc.containsKey("mode")) {

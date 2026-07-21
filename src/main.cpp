@@ -302,6 +302,18 @@ void llmTask(void *pvParameters) {
             
             if (llm_record_index > 0) {
                 Serial.printf("🧠 llmTask: Processing %u samples...\n", llm_record_index);
+                
+                String apiKey = preferences.getString("groq_key", "");
+                if (apiKey.length() == 0) {
+                    Serial.println("🧠 llmTask: Aborting. No API Key set!");
+                    eyes.setEmotion(SAD);
+                    eyes.showSpeechBubble("Please set API Key in App");
+                    emotionOverrideTimer = millis() + 5000;
+                    hasEmotionOverride = true;
+                    llm_record_index = 0;
+                    continue; // Skip the rest of the loop
+                }
+
                 // Change UI to "Thinking" state
                 eyes.setEmotion(DIZZY);
                 eyes.showSpeechBubble("Thinking...");
@@ -714,9 +726,29 @@ void loop() {
 
   // --- TOUCH SENSOR (Global tracking for LLM arm state) ---
   bool rawTouched = (digitalRead(TOUCH_PIN) == HIGH);
+  
+  static unsigned long continuousTouchStart = 0;
+  static bool wasRawTouched = false;
+  
   if (rawTouched) {
       lastTouchMs = millis();
+      
+      if (!wasRawTouched) {
+          continuousTouchStart = millis();
+      }
+      
+      // Factory reset on 20s hold
+      if (millis() - continuousTouchStart > 20000) {
+          Serial.println("HARDWARE RESET: 20-second hold detected. Wiping NVS...");
+          eyes.setEmotion(PANIC);
+          eyes.showSpeechBubble("Factory Reset...");
+          delay(2000);
+          preferences.clear();
+          ESP.restart();
+      }
   }
+  wasRawTouched = rawTouched;
+  
   // 800ms debounce window to survive TTP223 recalibration dropout
   bool isTouched = (millis() - lastTouchMs < 800);
   

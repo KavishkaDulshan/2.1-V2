@@ -2,8 +2,9 @@
 #include <ArduinoJson.h>
 #include "esp_http_client.h"
 #include "esp_crt_bundle.h"
+#include <Preferences.h>
 
-#define GROQ_API_KEY "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"
+extern Preferences preferences;
 
 void GroqClient::init() {
     // No specific initialization required right now
@@ -128,7 +129,8 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     
-    String authHeader = String("Bearer ") + GROQ_API_KEY;
+    String apiKey = preferences.getString("groq_key", "");
+    String authHeader = String("Bearer ") + apiKey;
     esp_http_client_set_header(client, "Authorization", authHeader.c_str());
     esp_http_client_set_header(client, "Content-Type", contentType.c_str());
     esp_http_client_set_post_field(client, (const char*)payload, total_len);
@@ -190,7 +192,8 @@ String GroqClient::chatCompletion(const String& prompt) {
     esp_http_client_handle_t client = esp_http_client_init(&config);
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     
-    String authHeader = String("Bearer ") + GROQ_API_KEY;
+    String apiKey = preferences.getString("groq_key", "");
+    String authHeader = String("Bearer ") + apiKey;
     esp_http_client_set_header(client, "Authorization", authHeader.c_str());
     esp_http_client_set_header(client, "Content-Type", "application/json");
     esp_http_client_set_post_field(client, jsonPayload.c_str(), jsonPayload.length());
