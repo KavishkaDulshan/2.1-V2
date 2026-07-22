@@ -45,6 +45,9 @@ private:
 
   Emotion currentEmotion = NEUTRAL;
 
+  int animFrameIndex = 0;
+  unsigned long lastAnimUpdate = 0;
+
   // Normal Blink & Double Blink
   unsigned long lastBlinkTime = 0;
   int blinkInterval = 3000;
@@ -204,6 +207,11 @@ private:
   int  clockBgHour = -1; // track when to re-init background
 
 public:
+  // AI State Overrides
+  bool isListening = false;
+  bool isThinking = false;
+  bool isWaiting = false;
+
   void init();
   void update();
   void draw(LGFX_Sprite *spr);
@@ -227,6 +235,7 @@ public:
   // --- LLM SPEECH BUBBLE ---
   String speechBubbleText = "";
   unsigned long speechBubbleTimer = 0;
+  unsigned long speechBubbleStartTime = 0;
   void showSpeechBubble(String text);
 
   // --- UTILITY DATA ---

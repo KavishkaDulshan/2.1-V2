@@ -1,7 +1,9 @@
 #include "RobotEyes.h"
 #include <math.h>
 #include "WarningAnimation.h"
+#include "Animations.h"
 #include <WiFi.h>
+#include <vector>
 
 static void drawRealStar(LGFX_Sprite *spr, int x, int y, int radius, uint16_t color) {
   int innerRadius = radius / 2;
@@ -49,7 +51,9 @@ void RobotEyes::init()
 
 uint16_t RobotEyes::getEmotionColor(Emotion e)
 {
-  // All emotions use white sclera - emotion is conveyed purely through shape
+  if (isListening || isThinking || isWaiting) {
+      return 0x4208; // Dark Gray (rgb 64, 64, 64) to highlight the foreground animation
+  }
   return 0xFFFF; // TFT_WHITE
 }
 
@@ -1342,7 +1346,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->drawArc(cx - w, cy + w, r, r - 3, 180, 270, veinColor);
   }
 
-  // Foreground particles for ASLEEP (Zzz) drawn LAST so it overlaps the eyelids
+    // Foreground particles for ASLEEP (Zzz) drawn LAST so it overlaps the eyelids
   if (currentEmotion == ASLEEP) {
     uint16_t zColor = 0x7E3F; // Light blue
     for (int i = 0; i < MAX_ZZZ; i++) {
@@ -1360,6 +1364,41 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         spr->drawLine(zx - zs, zy - zs + 1, zx + zs, zy - zs + 1, zColor); 
       }
     }
+  }
+
+  // --- FOREGROUND ANIMATIONS (Listening, Thinking, Waiting) ---
+  if (isListening || isThinking || isWaiting) {
+      if (millis() - lastAnimUpdate > 42) { // 42ms per frame
+          animFrameIndex++;
+          lastAnimUpdate = millis();
+      }
+      
+      const uint8_t (*frameData)[288] = nullptr;
+      int maxFrames = 1;
+      uint16_t animColor = TFT_WHITE; // Default
+
+      if (isListening) {
+          frameData = anim_sound;
+          maxFrames = anim_sound_frames;
+          animColor = 0x07E0; // Green
+      } else if (isThinking) {
+          frameData = anim_typing;
+          maxFrames = anim_typing_frames;
+          animColor = TFT_ORANGE;
+      } else if (isWaiting) {
+          frameData = anim_refresh_cloud;
+          maxFrames = anim_refresh_cloud_frames;
+          animColor = TFT_CYAN;
+      }
+      
+      if (frameData != nullptr) {
+          int currentFrame = animFrameIndex % maxFrames;
+          
+          // Draw 48x48 icon centered
+          int animX = 80 - 24;
+          int animY = 64 - 24;
+          spr->drawBitmap(animX, animY, frameData[currentFrame], 48, 48, animColor);
+      }
   }
 
   // Draw full status bar on top for sleeping animations
@@ -1436,10 +1475,6 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   
   // --- DRAW LLM SPEECH BUBBLE ---
   if (millis() < speechBubbleTimer) {
-      // Draw a semi-transparent dark background over the entire screen
-      // Since LGFX doesn't have an easy alpha fill for the whole screen without a custom sprite, 
-      // we'll just draw a solid dark pill or box for the bubble.
-      
       int margin = 10;
       int bW = 160 - (margin * 2);
       int bH = 60;
@@ -1461,33 +1496,72 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       spr->setTextColor(TFT_WHITE);
       spr->setTextDatum(textdatum_t::top_left);
       
-      // Simple text wrapping for the tiny screen
       int cursorX = bX + 6;
-      int cursorY = bY + 6;
+      int cursorY = 0; // Relative to the scrolling context
       int maxTextWidth = bW - 12;
+      int lineHeight = 12;
       
+      // 1. Measure text and build lines array
       String word = "";
+      std::vector<String> lines;
+      String currentLine = "";
       for (size_t i = 0; i <= speechBubbleText.length(); i++) {
           char c = (i < speechBubbleText.length()) ? speechBubbleText[i] : ' ';
           if (c == ' ' || i == speechBubbleText.length()) {
-              int wWidth = spr->textWidth(word + " ");
-              if (cursorX + wWidth > bX + maxTextWidth) {
-                  cursorX = bX + 6;
-                  cursorY += 12; // Next line
+              String testLine = currentLine + (currentLine.length() > 0 ? " " : "") + word;
+              if (spr->textWidth(testLine) > maxTextWidth) {
+                  lines.push_back(currentLine);
+                  currentLine = word;
+              } else {
+                  currentLine = testLine;
               }
-              spr->drawString(word, cursorX, cursorY);
-              cursorX += wWidth;
               word = "";
           } else {
               word += c;
           }
       }
+      if (currentLine.length() > 0) lines.push_back(currentLine);
+      
+      int totalTextHeight = lines.size() * lineHeight;
+      int visibleHeight = bH - 12;
+      
+      // 2. Calculate scroll offset
+      int scrollOffset = 0;
+      if (totalTextHeight > visibleHeight) {
+          unsigned long elapsed = millis() - speechBubbleStartTime;
+          if (elapsed > 3000) {
+              scrollOffset = (elapsed - 3000) / 30; // 1 pixel every 30ms
+              int maxScroll = totalTextHeight - visibleHeight + 4; // slight bottom padding
+              if (scrollOffset > maxScroll) {
+                  scrollOffset = maxScroll;
+                  // Keep the bubble open slightly longer if we just finished scrolling
+                  if (speechBubbleTimer < millis() + 3000) {
+                      speechBubbleTimer = millis() + 3000;
+                  }
+              }
+          }
+      }
+      
+      // 3. Draw text with clipping
+      spr->setClipRect(bX + 6, bY + 6, maxTextWidth, visibleHeight);
+      
+      for (size_t i = 0; i < lines.size(); i++) {
+          int drawY = bY + 6 + (i * lineHeight) - scrollOffset;
+          // Only draw if within visible area to save performance
+          if (drawY > bY - lineHeight && drawY < bY + bH) {
+              spr->drawString(lines[i], bX + 6, drawY);
+          }
+      }
+      
+      spr->clearClipRect();
   }
 }
 
 void RobotEyes::showSpeechBubble(String text) {
     speechBubbleText = text;
-    speechBubbleTimer = millis() + 8000; // Show for 8 seconds
+    speechBubbleStartTime = millis();
+    // Base time is 8s, but scrolling logic will dynamically extend it if needed
+    speechBubbleTimer = millis() + 8000; 
 }
 
 void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride, int hOverride)

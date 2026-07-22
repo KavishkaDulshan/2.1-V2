@@ -315,17 +315,20 @@ void llmTask(void *pvParameters) {
                 }
 
                 // Change UI to "Thinking" state
-                eyes.setEmotion(DIZZY);
-                eyes.showSpeechBubble("Thinking...");
+                eyes.setEmotion(INNOCENT); // Subtle background animation
+                eyes.isThinking = true;
                 emotionOverrideTimer = millis() + 30000;
                 hasEmotionOverride = true;
                 
                 String transcribedText = GroqClient::transcribeAudio(llm_record_buffer, llm_record_index);
+                eyes.isThinking = false;
                 
                 if (transcribedText.length() > 0) {
                     Serial.println("You said: " + transcribedText);
                     
+                    eyes.isWaiting = true;
                     String answer = GroqClient::chatCompletion(transcribedText);
+                    eyes.isWaiting = false;
                     Serial.println("Robot answers: " + answer);
                     
                     eyes.showSpeechBubble(answer);
@@ -339,6 +342,9 @@ void llmTask(void *pvParameters) {
             llm_record_index = 0;
             // Restore emotion state after bubble goes away
             hasEmotionOverride = false;
+            eyes.isListening = false;
+            eyes.isThinking = false;
+            eyes.isWaiting = false;
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -820,14 +826,13 @@ void loop() {
               (void*)llm_record_buffer, (int)is_recording_llm);
           
           if (touchedForLlm && !is_recording_llm && llm_record_buffer != nullptr) {
-              Serial.println("\U0001f3999\ufe0f LLM Recording Started!");
               is_recording_llm = true;
-              llm_record_index = 0;
-              eyes.setEmotion(INNOCENT);
-              emotionOverrideTimer = millis() + 15000;
+              eyes.isListening = true;
+              eyes.setEmotion(INNOCENT); // Subtly sway eyes while listening
               hasEmotionOverride = true;
-              innocentOverride = true;
-              innocentReleaseTime = 0;
+              emotionOverrideTimer = millis() + 30000;
+              llm_record_index = 0; // reset
+              Serial.println("🎙️ LLM Recording Started...");
           } else if (!touchedForLlm) {
               Serial.println("[DBG] Wake word fired but sensor NOT held — normal wake animation");
               if (isSleeping) {
@@ -914,6 +919,7 @@ void loop() {
   if (!isTouched && is_recording_llm) {
       Serial.printf("🛑 LLM Recording Stopped (Touch Released) - Captured %u samples\n", llm_record_index);
       is_recording_llm = false;
+      eyes.isListening = false;
       llm_process_pending = true;
   }
   
