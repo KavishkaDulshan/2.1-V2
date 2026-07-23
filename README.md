@@ -8,12 +8,14 @@ This project runs a companion robot control system on an **ESP32-S3-N16R8** deve
 
 | Module | Interface | Pin / Port | Notes |
 | :--- | :--- | :--- | :--- |
-| **OLED Display** (SH110x) | I2C | `SDA = 4`, `SCL = 5` | Driven by `LovyanGFX` |
-| **MPU6050 Accelerometer** | I2C | `SDA = 8`, `SCL = 9` | Default ESP32-S3 I2C pins |
+| **TFT Display** (ILI9341, 2.4") | SPI (SPI2) | `SCLK=12`, `MOSI=11`, `MISO=6`, `DC=9`, `CS=8`, `RST=10` | 240×320, LovyanGFX, 27 MHz |
+| **Touch Controller** (XPT2046) | SPI (shared) | `T_CS=3`, `T_CLK=12`, `T_DIN=11`, `T_DO=6` | Not active yet; T_IRQ unconnected |
+| **MPU6050 Accelerometer** | I2C | `SDA = 4`, `SCL = 5` | `Wire.begin(4,5)` |
 | **Capacitive Touch** | GPIO | `GPIO 14` | Input trigger |
 | **Vibration Motor** | GPIO | `GPIO 13` | Analog PWM output |
 | **I2S Microphone** | I2S | `WS = 15`, `SD = 7`, `SCK = 16` | Port: `I2S_NUM_0` |
 | **Serial Camera Interface** | UART | `RX = 18`, `TX = 17` | Connected to UART1 |
+
 
 ---
 

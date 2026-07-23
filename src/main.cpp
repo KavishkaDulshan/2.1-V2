@@ -74,7 +74,7 @@ RobotEyes eyes;
 
 // Display Setup
 class LGFX : public lgfx::LGFX_Device {
-  lgfx::Panel_ST7735S _panel_instance;
+  lgfx::Panel_ILI9341 _panel_instance; // 2.4" ILI9341 240x320
   lgfx::Bus_SPI       _bus_instance;
 public:
   LGFX(void) {
@@ -89,7 +89,7 @@ public:
       cfg.dma_channel = SPI_DMA_CH_AUTO;
       cfg.pin_sclk = 12;
       cfg.pin_mosi = 11;
-      cfg.pin_miso = -1;
+      cfg.pin_miso = 6;   // SDO wired — needed for future XPT2046 touch
       cfg.pin_dc   = 9;
       _bus_instance.config(cfg);
       _panel_instance.setBus(&_bus_instance);
@@ -99,16 +99,13 @@ public:
       cfg.pin_cs           = 8;
       cfg.pin_rst          = 10;
       cfg.pin_busy         = -1;
-      cfg.panel_width      = 128;
-      cfg.panel_height     = 160;
-      cfg.offset_x         = 0;
-      cfg.offset_y         = 0;
-      cfg.offset_rotation  = 0; // Removed offset, use display.setRotation() instead
+      cfg.panel_width      = 240;
+      cfg.panel_height     = 320;
       cfg.dummy_read_pixel = 8;
       cfg.dummy_read_bits  = 1;
-      cfg.readable         = false;
+      cfg.readable         = true;
       cfg.invert           = false;
-      cfg.rgb_order        = true;
+      cfg.rgb_order        = false;
       cfg.dlen_16bit       = false;
       cfg.bus_shared       = false;
       _panel_instance.config(cfg);
@@ -504,16 +501,15 @@ void setup() {
   pinMode(VIBE_PIN, OUTPUT);
   analogWrite(VIBE_PIN, 0);
 
-  display.init(); 
-  display.setBrightness(128); 
-  display.setRotation(1); // KEEP THIS AT 1 (Hardware is happy here)
-  sprite.setColorDepth(16); 
-  
-  // FIX: Swap RGB order so RED shows as Red, not Blue
-  auto cfg = display.getPanel()->config();
-  cfg.rgb_order = true; 
-  display.getPanel()->config(cfg);
-  
+  display.init();
+  display.setBrightness(128);
+  display.setRotation(0); // ILI9341 portrait (240x320), mounted right-side up
+  sprite.setColorDepth(16);
+
+  // Fill the entire 240x320 screen black once.
+  // The 160x128 sprite covers only the top-left region; borders never get overwritten.
+  display.fillScreen(TFT_BLACK);
+
   sprite.createSprite(160, 128);
   eyes.init();
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
@@ -1000,10 +996,10 @@ void loop() {
 
   eyes.update();
   eyes.draw(&sprite);
-  
-  // SOFTWARE ROTATION (180 degrees)
-  sprite.setPivot(80, 64); // Center of 160x128 sprite
-  sprite.pushRotateZoom(&display, 80, 64, 180, 1.0, 1.0);
+
+  // Push the 160x128 sprite to the top-left corner of the 240x320 ILI9341 display.
+  // No rotation correction needed — display is mounted right-side up.
+  sprite.pushSprite(&display, 0, 0);
 }
 
 bool processCameraData() {
