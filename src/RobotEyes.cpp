@@ -326,7 +326,25 @@ void RobotEyes::update()
     sleepTrembleAngle += 0.08f;
     
     // Update Zzz Particles
-    if (now > zSpawnTimer) {
+    bool shouldSpawn = false;
+    float highestY = -999.0f;
+    int activeCount = 0;
+    
+    for (int i = 0; i < MAX_ZZZ; i++) {
+      if (zParticles[i].active) {
+        activeCount++;
+        if (zParticles[i].y > highestY) {
+          highestY = zParticles[i].y;
+        }
+      }
+    }
+    
+    // Center is 96, edge is -20. Total dist is 116. Halfway is 38.
+    if (activeCount < MAX_ZZZ && (activeCount == 0 || highestY <= 38.0f)) {
+      shouldSpawn = true;
+    }
+
+    if (shouldSpawn) {
       for (int i = 0; i < MAX_ZZZ; i++) {
         if (!zParticles[i].active) {
           zParticles[i].active = true;
@@ -337,12 +355,11 @@ void RobotEyes::update()
           break;
         }
       }
-      zSpawnTimer = now + random(1200, 1800); // reduced frequency to increase gap
     }
     for (int i = 0; i < MAX_ZZZ; i++) {
       if (zParticles[i].active) {
         zParticles[i].y -= 0.4f;
-        zParticles[i].size += 0.01f;
+        zParticles[i].size += 0.003f;
         // Drift rightwards to disappear at top right, while still swaying
         zParticles[i].x += 0.3f + sin((now - zParticles[i].spawnTime) * 0.003f) * 0.4f;
         if (zParticles[i].y < -20 || zParticles[i].x > 270) zParticles[i].active = false;
