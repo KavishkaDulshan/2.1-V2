@@ -330,8 +330,8 @@ void RobotEyes::update()
       for (int i = 0; i < MAX_ZZZ; i++) {
         if (!zParticles[i].active) {
           zParticles[i].active = true;
-          zParticles[i].x = 80; // middle of the screen
-          zParticles[i].y = 64; // middle of the screen
+          zParticles[i].x = 120; // middle of the screen
+          zParticles[i].y = 96; // middle of the screen
           zParticles[i].size = 0.5f;
           zParticles[i].spawnTime = now;
           break;
@@ -345,7 +345,7 @@ void RobotEyes::update()
         zParticles[i].size += 0.01f;
         // Drift rightwards to disappear at top right, while still swaying
         zParticles[i].x += 0.3f + sin((now - zParticles[i].spawnTime) * 0.003f) * 0.4f;
-        if (zParticles[i].y < -20 || zParticles[i].x > 180) zParticles[i].active = false;
+        if (zParticles[i].y < -20 || zParticles[i].x > 270) zParticles[i].active = false;
       }
     }
 
@@ -428,8 +428,8 @@ void RobotEyes::update()
       for (int i = 0; i < MAX_HEARTS; i++) {
         if (!hearts[i].active) {
           hearts[i].active = true;
-          hearts[i].x = random(20, 140);
-          hearts[i].y = 130 + random(0, 20); // spawn below screen
+          hearts[i].x = random(30, 210);
+          hearts[i].y = 195 + random(0, 30); // spawn below screen
           hearts[i].vy = -((float)random(10, 25) / 10.0f);
           hearts[i].size = (float)random(3, 7);
           break;
@@ -465,7 +465,7 @@ void RobotEyes::update()
       case 1:
       {
         sleepyLidHeight += 0.010f;
-        targetY = sleepyLidHeight * 22.0f;
+        targetY = sleepyLidHeight * 33.0f;
         if (now - lastMicroDrift > 300)
         {
           sleepMicroTargetX = (float)random(-5, 6);
@@ -481,7 +481,7 @@ void RobotEyes::update()
         break;
       }
       case 2:
-        targetY = 22.0f;
+        targetY = 33.0f;
         sleepyLidHeight = 0.85f + sin(sleepTrembleAngle * 0.4f) * 0.02f;
         if (now - sleepPhaseTimer > (unsigned long)random(900, 2200))
         {
@@ -541,8 +541,8 @@ void RobotEyes::update()
       for (int i = 0; i < MAX_STARS; i++) {
         if (!stars[i].active) {
           stars[i].active = true;
-          stars[i].x = random(10, 150);
-          stars[i].y = 130 + random(0, 20);
+          stars[i].x = random(15, 225);
+          stars[i].y = 195 + random(0, 30);
           stars[i].vy = -((float)random(15, 30) / 10.0f);
           break;
         }
@@ -559,8 +559,8 @@ void RobotEyes::update()
     // Update Firework
     if (!firework.active && now > fireworkTimer) {
       firework.active = true;
-      firework.x = random(30, 130);
-      firework.y = random(20, 100);
+      firework.x = random(45, 195);
+      firework.y = random(30, 150);
       firework.radius = 0;
       firework.maxRadius = random(15, 35);
       firework.alpha = 1.0f;
@@ -592,7 +592,7 @@ void RobotEyes::update()
       sadTearVy += 0.08f; // gravity
       sadTearY += sadTearVy;
       sadTearH += 0.15f; // stretches as it falls
-      if (sadTearY > 130) {
+      if (sadTearY > 195) {
         sadTearActive = false;
         sadTearTimer = now + random(2000, 5000);
       }
@@ -624,8 +624,8 @@ void RobotEyes::update()
           steamPuffs[i].active = true;
           // spawn from sides (ears)
           int side = (random(2) == 0) ? -1 : 1;
-          steamPuffs[i].x = (side == -1) ? random(10, 30) : random(130, 150);
-          steamPuffs[i].y = 80 + random(0, 15);
+          steamPuffs[i].x = (side == -1) ? random(15, 45) : random(195, 225);
+          steamPuffs[i].y = 120 + random(0, 22);
           steamPuffs[i].vy = -((float)random(5, 15) / 10.0f);
           steamPuffs[i].radius = random(4, 10);
           steamPuffs[i].alpha = 1.0f;
@@ -780,7 +780,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       spr->setTextSize(1);
       spr->setTextDatum(textdatum_t::top_right);
       spr->setTextColor(TFT_LIGHTGREY);
-      spr->drawString(timeString, 158, 4); // Moved down 4 pixels
+      spr->drawString(timeString, 238, 4); // Moved down 4 pixels
     }
   };
 
@@ -789,12 +789,12 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   }
 
   if (currentEmotion == WARNING_ANIM) {
-    int wX = (160 - WARNING_FRAME_WIDTH) / 2;
-    int wY = (128 - WARNING_FRAME_HEIGHT) / 2;
+    int wX = (240 - WARNING_FRAME_WIDTH) / 2;
+    int wY = (192 - WARNING_FRAME_HEIGHT) / 2;
     spr->drawBitmap(wX, wY, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, 0xF800);
     spr->setTextColor(0xF800, TFT_BLACK);
     spr->setTextDatum(textdatum_t::top_center);
-    spr->drawString("WARNING", 80, wY + WARNING_FRAME_HEIGHT + 10);
+    spr->drawString("WARNING", 120, wY + WARNING_FRAME_HEIGHT + 10);
     return;
   }
   
@@ -805,21 +805,21 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   if (currentEmotion == ALARM_RINGING) {
     drawY = centerY + (int)(sin(millis() / 20.0f) * 4.0f);
     
-    int bellX = 80;
-    int bellY = 18;
+    int bellX = 120;
+    int bellY = 27;
     int shake = (int)(sin(millis() / 30.0f) * 3.0f);
     bellX += shake;
     
     // Draw Bell
-    spr->fillCircle(bellX, bellY, 10, TFT_ORANGE);
-    spr->fillRect(bellX - 10, bellY, 21, 12, TFT_BLACK); // cut off the bottom half
-    spr->fillRect(bellX - 12, bellY - 2, 25, 4, TFT_ORANGE); // Base rim
-    spr->fillCircle(bellX, bellY + 2, 3, TFT_YELLOW); // clapper
+    spr->fillCircle(bellX, bellY, 15, TFT_ORANGE);
+    spr->fillRect(bellX - 15, bellY, 31, 18, TFT_BLACK); // cut off the bottom half
+    spr->fillRect(bellX - 18, bellY - 3, 37, 6, TFT_ORANGE); // Base rim
+    spr->fillCircle(bellX, bellY + 3, 4, TFT_YELLOW); // clapper
     
     // Draw ringing lines
     if ((millis() / 100) % 2 == 0) {
-       spr->drawLine(bellX - 15, bellY - 8, bellX - 22, bellY - 12, TFT_WHITE);
-       spr->drawLine(bellX + 15, bellY - 8, bellX + 22, bellY - 12, TFT_WHITE);
+       spr->drawLine(bellX - 22, bellY - 12, bellX - 33, bellY - 18, TFT_WHITE);
+       spr->drawLine(bellX + 22, bellY - 12, bellX + 33, bellY - 18, TFT_WHITE);
     }
     
     // Draw the time text nicely below the bell
@@ -827,7 +827,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     spr->setTextSize(1);
     spr->setTextDatum(textdatum_t::top_center);
     spr->setTextColor(TFT_WHITE, TFT_BLACK);
-    spr->drawString(timeString, 80, 26);
+    spr->drawString(timeString, 120, 39);
   } else if (currentEmotion == CLOCK_MODE) {
     extern String weatherCity;
 
@@ -836,23 +836,23 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         clockBgInitialized = true;
         // Scatter stars randomly
         for (int i = 0; i < MAX_CLOCK_STARS; i++) {
-            clockStars[i].x           = random(0, 160);
-            clockStars[i].y           = random(0, 128);
+            clockStars[i].x           = random(0, 240);
+            clockStars[i].y           = random(0, 192);
             clockStars[i].twinkleAngle = (float)(random(0, 628)) / 100.0f;
             clockStars[i].twinkleSpeed = 0.03f + (float)(random(0, 50)) / 1000.0f;
             clockStars[i].size        = random(1, 3);
         }
         // Scatter background clouds (drifting horizontally)
         for (int i = 0; i < MAX_BG_CLOUDS; i++) {
-            bgClouds[i].x     = (float)random(0, 200);
-            bgClouds[i].y     = (float)random(8, 50);
+            bgClouds[i].x     = (float)random(0, 300);
+            bgClouds[i].y     = (float)random(12, 75);
             bgClouds[i].speed = 0.08f + (float)(random(0, 10)) / 100.0f;
             bgClouds[i].alpha = 60 + random(0, 40); // 60-100 (out of 255) = subtle
         }
         // Spawn rain drops
         for (int i = 0; i < MAX_RAIN_DROPS; i++) {
-            rainDrops[i].x      = random(0, 160);
-            rainDrops[i].y      = random(-30, 128);
+            rainDrops[i].x      = random(0, 240);
+            rainDrops[i].y      = random(-30, 192);
             rainDrops[i].speed  = 1.8f + (float)(random(0, 120)) / 100.0f;
             rainDrops[i].len    = random(4, 9);
             rainDrops[i].active = true;
@@ -865,12 +865,12 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     
     if (h >= 9 && h < 17) {
         // Daytime: gradient from #085893 (top) to #1576ab (bottom)
-        for (int y = 0; y < 128; y++) {
-            float t = (float)y / 127.0f;
+        for (int y = 0; y < 192; y++) {
+            float t = (float)y / 191.0f;
             uint8_t r = 8 + (uint8_t)(t * (21 - 8));
             uint8_t g = 88 + (uint8_t)(t * (118 - 88));
             uint8_t b = 147 + (uint8_t)(t * (171 - 147));
-            spr->drawFastHLine(0, y, 160, spr->color565(r, g, b));
+            spr->drawFastHLine(0, y, 240, spr->color565(r, g, b));
         }
     } else {
         if (h >= 6 && h < 9) {
@@ -917,7 +917,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     if (!isNight || isCloud || isRain) {
         for (int i = 0; i < MAX_BG_CLOUDS; i++) {
             bgClouds[i].x += bgClouds[i].speed;
-            if (bgClouds[i].x > 200) bgClouds[i].x = -60;
+            if (bgClouds[i].x > 300) bgClouds[i].x = -60;
             int cx = (int)bgClouds[i].x;
             int cy = (int)bgClouds[i].y;
             // Muted translucent grey (mix with sky)
@@ -945,9 +945,9 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         for (int i = 0; i < MAX_RAIN_DROPS; i++) {
             if (!rainDrops[i].active) continue;
             rainDrops[i].y += rainDrops[i].speed;
-            if (rainDrops[i].y > 130) {
-                rainDrops[i].y  = (float)random(-20, 0);
-                rainDrops[i].x  = (float)random(0, 160);
+            if (rainDrops[i].y > 195) {
+                rainDrops[i].y  = (float)random(-30, 0);
+                rainDrops[i].x  = (float)random(0, 240);
             }
             int rx = (int)rainDrops[i].x;
             int ry = (int)rainDrops[i].y;
@@ -959,8 +959,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     // Shown if clear, but ONLY from 9am to 8pm (removed from morning 6-9am)
     if (isSun && !isNight && !isMorning) {
         float sunAngle = (float)(millis() % 3600) * 0.001f; // slow rotation
-        int sunX = 140, sunY = 14; // top-right corner
-        int innerR = 10, outerR = 16;
+        int sunX = 210, sunY = 21; // top-right corner
+        int innerR = 15, outerR = 24;
         uint16_t sunYellow = 0xFFE0;
         uint16_t sunOrange = 0xFD20;
         // Glow circle
@@ -992,14 +992,14 @@ void RobotEyes::draw(LGFX_Sprite *spr)
 
     // Glow shadow
     spr->setTextColor(glowColor);
-    spr->drawString(timeString, 80 - 2, 58 - 2);
-    spr->drawString(timeString, 80 + 2, 58 + 2);
-    spr->drawString(timeString, 80 - 2, 58 + 2);
-    spr->drawString(timeString, 80 + 2, 58 - 2);
+    spr->drawString(timeString, 120 - 2, 87 - 2);
+    spr->drawString(timeString, 120 + 2, 87 + 2);
+    spr->drawString(timeString, 120 - 2, 87 + 2);
+    spr->drawString(timeString, 120 + 2, 87 - 2);
 
     // Main time
     spr->setTextColor(clockColor);
-    spr->drawString(timeString, 80, 58);
+    spr->drawString(timeString, 120, 87);
 
     // ===== STEP 5: Bottom section – Icon + Condition + Temperature =====
     if (weatherIcon != "") {
@@ -1014,7 +1014,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         } else {
             // === Draw weather icon (native vector) on the left ===
             int iconX = 12; // left anchor
-            int iconY = 100; // center Y of bottom bar
+            int iconY = 150; // center Y of bottom bar
 
             if (weatherIcon == "sun") {
                 // Sun: glowing circle + 8 rays
@@ -1065,7 +1065,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
             spr->setTextDatum(textdatum_t::middle_right);
             spr->setTextColor(0xFFE0); // yellow temperature
             String tempStr = String((int)weatherTemp) + (char)247 + "C"; // degree symbol
-            spr->drawString(tempStr, 155, iconY);
+            spr->drawString(tempStr, 228, iconY);
         }
     }
 
@@ -1077,9 +1077,9 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     displayCity.replace("%20", " ");
     // Draw a subtle text shadow (dark, no fill box)
     spr->setTextColor(0x2104);
-    spr->drawString(displayCity, 5 + 1, 128 - 1 + 1); // Slight shadow offset
+    spr->drawString(displayCity, 5 + 1, 192 - 1 + 1); // Slight shadow offset
     spr->setTextColor(TFT_LIGHTGREY);
-    spr->drawString(displayCity, 5, 128 - 1);
+    spr->drawString(displayCity, 5, 192 - 1);
 
     drawStatusBar(true); // Draw only WiFi icon on top of clock background
     return;
@@ -1143,14 +1143,14 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     // Background spirals (3 sweeping arcs)
     for (int i = 0; i < 3; i++) {
       float a = dizzyBackgroundAngle + (i * TWO_PI / 3.0f);
-      int sx = centerX + (int)(cos(a) * 80.0f);
-      int sy = centerY + (int)(sin(a) * 80.0f);
+      int sx = centerX + (int)(cos(a) * 120.0f);
+      int sy = centerY + (int)(sin(a) * 120.0f);
       spr->drawLine(centerX, centerY, sx, sy, spiralColor); // simple sweep representation
     }
 
     // Orbiting rings and stars around the head/eyes
-    int orbitRx = 70;
-    int orbitRy = 20; // flattened ellipse to look 3D
+    int orbitRx = 105;
+    int orbitRy = 30; // flattened ellipse to look 3D
     // Draw the ring path as dotted curve
     for (float a = 0; a < TWO_PI; a += 0.4f) {
       int rx = centerX + (int)(cos(a) * orbitRx);
@@ -1219,8 +1219,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   // GUARDING: asymmetric eye sizes for peeking feel
   if (currentEmotion == GUARDING) {
     // Draw Siren in 3D side-view perspective
-    int bx = 80;
-    int by = 8;
+    int bx = 120;
+    int by = 12;
     float rA = guardSirenAngle * PI / 180.0f;
     float bA = (guardSirenAngle + 180.0f) * PI / 180.0f;
     
@@ -1229,8 +1229,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     
     // 1. Draw sideways beams (Background)
     // Red beam with fade
-    int rL = (int)(45.0f * rdx);
-    int rW = (int)(15.0f * fabs(rdx));
+    int rL = (int)(67.0f * rdx);
+    int rW = (int)(22.0f * fabs(rdx));
     if (abs(rL) > 2) {
         spr->fillTriangle(bx, by, bx + rL, by - rW, bx + rL, by + rW, 0x5000); // Dark outer
         int rL2 = (int)(rL * 0.66f);
@@ -1242,8 +1242,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
     
     // Blue beam with fade
-    int bL = (int)(45.0f * bdx);
-    int bW = (int)(15.0f * fabs(bdx));
+    int bL = (int)(67.0f * bdx);
+    int bW = (int)(22.0f * fabs(bdx));
     if (abs(bL) > 2) {
         spr->fillTriangle(bx, by, bx + bL, by - bW, bx + bL, by + bW, 0x000A); // Dark outer
         int bL2 = (int)(bL * 0.66f);
@@ -1255,18 +1255,18 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     }
     
     // 2. Draw Dome and Base
-    spr->fillRoundRect(70, -2, 20, 18, 6, 0xCE79); // Light silver dome
-    spr->fillRect(62, 0, 36, 4, 0x4208); // Dark grey base at top edge
+    spr->fillRoundRect(105, -3, 30, 27, 9, 0xCE79); // Light silver dome
+    spr->fillRect(93, 0, 54, 6, 0x4208); // Dark grey base at top edge
     
     // 3. Draw Lens Flares (Foreground) - grows when pointing forward
     if (rdz > 0) {
-        int fx = bx + (int)(8.0f * rdx);
-        int fSize = (int)(rdz * 9.0f);
+        int fx = bx + (int)(12.0f * rdx);
+        int fSize = (int)(rdz * 14.0f);
         if (fSize > 0) spr->fillCircle(fx, by, fSize, TFT_RED);
     }
     if (bdz > 0) {
-        int fx = bx + (int)(8.0f * bdx);
-        int fSize = (int)(bdz * 9.0f);
+        int fx = bx + (int)(12.0f * bdx);
+        int fSize = (int)(bdz * 14.0f);
         if (fSize > 0) spr->fillCircle(fx, by, fSize, TFT_BLUE);
     }
 
@@ -1299,23 +1299,23 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   // Smile mouth for HAPPY
   if (currentEmotion == HAPPY)
   {
-    int mR = 8;
-    int mY = constrain(drawY + eyeH / 2 + 8, mR, 127 - mR);
+    int mR = 12;
+    int mY = constrain(drawY + eyeH / 2 + 15, mR, 191 - mR);
     spr->fillCircle(centerX, mY, mR, TFT_WHITE);
     spr->fillRect(centerX - mR, mY - mR, mR * 2 + 1, mR, TFT_BLACK);
 
     // Orbiting Star around the top of the eyes
-    int orbitRx = 50;
-    int orbitRy = 15;
+    int orbitRx = 75;
+    int orbitRy = 22;
     int starX = centerX + (int)(cos(happyStarAngle) * orbitRx);
-    int starY = drawY - 35 + (int)(sin(happyStarAngle) * orbitRy);
+    int starY = drawY - 45 + (int)(sin(happyStarAngle) * orbitRy);
     
     // Star tail (trailing slightly behind)
     int tailX = centerX + (int)(cos(happyStarAngle - 0.4f) * orbitRx);
-    int tailY = drawY - 35 + (int)(sin(happyStarAngle - 0.4f) * orbitRy);
+    int tailY = drawY - 45 + (int)(sin(happyStarAngle - 0.4f) * orbitRy);
     spr->drawLine(starX, starY, tailX, tailY, 0xFFE0); // Yellow tail
     
-    drawRealStar(spr, starX, starY, 4, 0xFFE0); // Yellow star
+    drawRealStar(spr, starX, starY, 6, 0xFFE0); // Yellow star
   }
 
   // Panic sweat drop
@@ -1332,8 +1332,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     int cy = drawY - (eyeH / 2) - 5;
     uint16_t veinColor = 0xF800; // Bright Red
 
-    int r = 5 + (int)(sin(angryTwitchAngle * 2.0f) * 1.5f); // 3 to 6
-    int w = 6; // offset from center (larger gap between pieces)
+    int r = 8 + (int)(sin(angryTwitchAngle * 2.0f) * 1.5f); // larger base
+    int w = 9; // offset from center (larger gap between pieces)
     
     // Draw 4 distinct corners that bulge outward
     // Top-Left corner (Left to Up -> 270 to 360)
@@ -1353,7 +1353,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
       if (zParticles[i].active) {
         int zx = (int)zParticles[i].x;
         int zy = (int)zParticles[i].y;
-        int zs = (int)(zParticles[i].size * 4.0f); // Size modifier (grows as it floats)
+        int zs = (int)(zParticles[i].size * 6.0f); // Size modifier (grows as it floats)
         
         // Draw a Z using 3 thick lines
         spr->drawLine(zx - zs, zy - zs, zx + zs, zy - zs, zColor); // Top bar
@@ -1395,8 +1395,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
           int currentFrame = animFrameIndex % maxFrames;
           
           // Draw 48x48 icon centered
-          int animX = 80 - 24;
-          int animY = 64 - 24;
+          int animX = 120 - 24;
+          int animY = 96 - 24;
           spr->drawBitmap(animX, animY, frameData[currentFrame], 48, 48, animColor);
       }
   }
@@ -1584,20 +1584,20 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
 
     if (happyH > 10 && effectiveBlink < 0.6f)
     {
-      int pR = 16; // Larger than idle 14 for extra joy
+      int pR = 24; // Larger than idle 21 for extra joy
       int pX = x + (int)curX;
       int pY = constrain(y + (int)curY, y - happyH / 2 + pR + 2, y + happyH / 2 - pR - 2);
       
       spr->fillCircle(pX, pY, pR, TFT_BLACK);
       // Extra large happy highlights
-      spr->fillCircle(pX - 4, pY - 5, 4, TFT_WHITE);
-      spr->fillCircle(pX + 5, pY + 3, 2, TFT_WHITE);
+      spr->fillCircle(pX - 6, pY - 7, 6, TFT_WHITE);
+      spr->fillCircle(pX + 7, pY + 4, 3, TFT_WHITE);
 
-      int chBaseX = x + side * (rawW / 2 - 6);
-      int chY     = y + happyH / 2 + 6;
+      int chBaseX = x + side * (rawW / 2 - 9);
+      int chY     = y + happyH / 2 + 9;
       uint16_t pinkColor = 0xFDDF; // Lighter Pink (to contrast with hearts)
       for (int i = 0; i < 3; i++) {
-        spr->fillCircle(chBaseX + side * i * 4, chY, 2, pinkColor);
+        spr->fillCircle(chBaseX + side * i * 6, chY, 3, pinkColor);
       }
     }
     return;
@@ -1608,9 +1608,9 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
   {
     int eyeTop = y - eH / 2;
     spr->fillRoundRect(x - eW / 2, eyeTop, eW, eH, eyeR, scleraColor);
-    int lidR = 44;
+    int lidR = 72;
     int lidCY = eyeTop - lidR + (int)(eH * sleepyLidHeight);
-    int lidCX = x + (-side) * (int)(sleepyLidHeight * 5);
+    int lidCX = x + (-side) * (int)(sleepyLidHeight * 7);
     spr->fillCircle(lidCX, lidCY, lidR, TFT_BLACK);
     int lidLineY = eyeTop + (int)(eH * sleepyLidHeight);
     int visH = y + eH / 2 - lidLineY;
@@ -1638,12 +1638,12 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
 
     if (iHe > 14 && eb < 0.6f)
     {
-      int pR = 22; // Much larger pupil for innocent
+      int pR = 33; // Much larger pupil for innocent
       int pX = x + (int)curX;
       int pY = constrain(y + (int)curY, y - iHe / 2 + pR + 2, y + iHe / 2 - pR - 2);
       spr->fillCircle(pX, pY, pR, TFT_BLACK);
-      spr->fillCircle(pX - 6, pY - 7, 5, TFT_WHITE); // Larger highlight
-      spr->fillCircle(pX + 6, pY + 4, 3, TFT_WHITE);
+      spr->fillCircle(pX - 9, pY - 10, 7, TFT_WHITE); // Larger highlight
+      spr->fillCircle(pX + 9, pY + 6, 4, TFT_WHITE);
     }
     return;
   }

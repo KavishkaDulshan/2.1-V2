@@ -160,7 +160,7 @@ private:
   bool panicSweatActive = false;
   unsigned long panicSweatTimer = 0;
   // --- NEW: ASLEEP Zzz PARTICLES ---
-  static const int MAX_ZZZ = 5;
+  static const int MAX_ZZZ = 3;
   struct ZParticle {
     float x, y, size;
     unsigned long spawnTime;
