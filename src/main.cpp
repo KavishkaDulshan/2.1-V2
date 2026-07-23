@@ -308,8 +308,9 @@ void llmTask(void *pvParameters) {
                     emotionOverrideTimer = millis() + 5000;
                     hasEmotionOverride = true;
                     llm_record_index = 0;
-                    continue; // Skip the rest of the loop
-                }
+                    // FIX: Do not 'continue' here, otherwise it skips vTaskDelay!
+                    // Instead, just skip the rest of the processing for this block.
+                } else {
 
                 // Change UI to "Thinking" state
                 eyes.setEmotion(INNOCENT); // Subtle background animation
@@ -333,6 +334,7 @@ void llmTask(void *pvParameters) {
                     Serial.println("🧠 llmTask: Transcribed text was empty.");
                     eyes.showSpeechBubble("Could not hear you properly.");
                 }
+                } // End of apiKey else block
             } else {
                 Serial.println("🧠 llmTask: Record index was 0, ignoring!");
             }
@@ -510,6 +512,9 @@ void setup() {
   // The 160x128 sprite covers only the top-left region; borders never get overwritten.
   display.fillScreen(TFT_BLACK);
 
+  // CRITICAL FIX: Force the 240x192 sprite (92KB) into PSRAM!
+  // If left in internal SRAM, it eats too much memory and causes llmTask creation to silently fail.
+  sprite.setPsram(true);
   sprite.createSprite(240, 192);
   eyes.init();
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
@@ -562,8 +567,8 @@ void setup() {
   // Start Weather Task
   xTaskCreatePinnedToCore(weatherTask, "WeatherTask", 8192, NULL, 1, &weatherTaskHandle, 1);
   
-  // Start LLM Task
-  xTaskCreatePinnedToCore(llmTask, "LLMTask", 16384, NULL, 1, NULL, 1);
+  // Start LLM Task with higher priority to prevent starvation from loop()
+  xTaskCreatePinnedToCore(llmTask, "LLMTask", 16384, NULL, 2, NULL, 1);
   
   lastInteractionTime = millis();
 }
@@ -1012,6 +1017,9 @@ void loop() {
   // Push the 160x128 sprite to the top-left corner of the 240x320 ILI9341 display.
   // No rotation correction needed — display is mounted right-side up.
   sprite.pushSprite(&display, 0, 0);
+
+  // Yield to allow background tasks (like LLM) to run if they share the same priority
+  vTaskDelay(pdMS_TO_TICKS(1));
 }
 
 bool processCameraData() {
