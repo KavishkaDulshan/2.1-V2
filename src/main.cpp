@@ -82,7 +82,7 @@ public:
       auto cfg = _bus_instance.config();
       cfg.spi_host = SPI2_HOST;
       cfg.spi_mode = 0;
-      cfg.freq_write = 27000000;
+      cfg.freq_write = 60000000; // 60 MHz — stable on breadboard wires, 2.2x faster than original 27 MHz
       cfg.freq_read  = 16000000;
       cfg.spi_3wire  = false;
       cfg.use_lock   = true;
