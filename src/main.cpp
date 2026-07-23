@@ -698,6 +698,18 @@ void loop() {
   
   sensors_event_t a, g, temp;
   mpu.getEvent(&a, &g, &temp);
+
+  // --- MPU6050 Recalibration ---
+  // The module is mounted perpendicularly: physical X is pointing to the ceiling (vertical).
+  // We swap X and Z axes so the rest of the logical code (which expects Z to be vertical and X/Y to be horizontal) works properly.
+  float phys_x = a.acceleration.x;
+  a.acceleration.x = a.acceleration.z;
+  a.acceleration.z = phys_x;
+  
+  float phys_gx = g.gyro.x;
+  g.gyro.x = g.gyro.z;
+  g.gyro.z = phys_gx;
+
   float totalAccel = sqrt(pow(a.acceleration.x,2) + pow(a.acceleration.y,2) + pow(a.acceleration.z,2));
   float totalGyro  = sqrt(pow(g.gyro.x,2)  + pow(g.gyro.y,2)  + pow(g.gyro.z,2));
   eyes.setEyeOffset(-a.acceleration.x * 1.5, a.acceleration.y * 1.5);
