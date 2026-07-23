@@ -510,7 +510,7 @@ void setup() {
   // The 160x128 sprite covers only the top-left region; borders never get overwritten.
   display.fillScreen(TFT_BLACK);
 
-  sprite.createSprite(160, 128);
+  sprite.createSprite(240, 192);
   eyes.init();
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
   eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);

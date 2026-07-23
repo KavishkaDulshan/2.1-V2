@@ -708,9 +708,9 @@ void RobotEyes::update()
       for (int i=0; i<MAX_FIREFLIES; i++) {
         if (!fireflies[i].active) {
           fireflies[i].active = true;
-          fireflies[i].x = random(10, 150);
-          fireflies[i].y = random(80, 140);
-          fireflies[i].vx = (random(-10, 10) / 20.0f);
+          fireflies[i].x = random(15, 225);
+          fireflies[i].y = random(120, 210);
+          fireflies[i].vx = (random(-15, 15) / 20.0f);
           fireflies[i].vy = -(random(5, 12) / 20.0f);
           fireflies[i].alpha = 1.0f;
           break;
@@ -729,8 +729,8 @@ void RobotEyes::update()
 
     if (!mpuActive) {
       if (now > idleGazeTimer) {
-        idleTargetX = (float)random(-8, 9);
-        idleTargetY = (float)random(-4, 5);
+        idleTargetX = (float)random(-12, 13);
+        idleTargetY = (float)random(-6, 7);
         idleGazeTimer = now + random(1500, 4000);
       }
       targetX += (idleTargetX - targetX) * 0.02f;
@@ -798,8 +798,8 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     return;
   }
   
-  int centerX = 80 + (int)eyeOffsetX;
-  int centerY = 64 + (int)eyeOffsetY;
+  int centerX = 120 + (int)eyeOffsetX;
+  int centerY = 96 + (int)eyeOffsetY;
   int drawY = centerY;
 
   if (currentEmotion == ALARM_RINGING) {

@@ -25,12 +25,12 @@ enum Emotion
 class RobotEyes
 {
 private:
-  // --- CONFIG (Updated for 160x128 Display) ---
-  int eyeW = 48;
-  int eyeH = 64;
-  int eyeR = 16;
-  int eyeGap = 38;
-  int pupilR = 14;
+  // --- CONFIG (Updated for 240x192 Display) ---
+  int eyeW = 72;
+  int eyeH = 96;
+  int eyeR = 24;
+  int eyeGap = 57;
+  int pupilR = 21;
 
   uint16_t getEmotionColor(Emotion e);
 
