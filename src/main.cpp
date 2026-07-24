@@ -8,6 +8,7 @@
 
 // --- EDGE IMPULSE HEADER ---
 #include "edge-impulse-sdk/classifier/ei_run_classifier.h"
+#include "ChatUI.h"
 
 #include "RobotEyes.h"
 #include <ArduinoJson.h>
@@ -71,11 +72,13 @@ String savedPass = "";
 
 Adafruit_MPU6050 mpu;
 RobotEyes eyes;
+ChatUI chatUI;
 
 // Display Setup
 class LGFX : public lgfx::LGFX_Device {
   lgfx::Panel_ILI9341 _panel_instance; // 2.4" ILI9341 240x320
   lgfx::Bus_SPI       _bus_instance;
+  lgfx::Touch_XPT2046 _touch_instance;
 public:
   LGFX(void) {
     {
@@ -109,6 +112,24 @@ public:
       cfg.dlen_16bit       = false;
       cfg.bus_shared       = false;
       _panel_instance.config(cfg);
+    }
+    {
+      auto cfg = _touch_instance.config();
+      cfg.x_min      = 0;
+      cfg.x_max      = 239;
+      cfg.y_min      = 0;
+      cfg.y_max      = 319;
+      cfg.pin_int    = -1; // Unconnected
+      cfg.bus_shared = true;
+      cfg.offset_rotation = 0;
+      cfg.spi_host = SPI2_HOST;
+      cfg.freq = 1000000;
+      cfg.pin_sclk = 12;
+      cfg.pin_mosi = 11;
+      cfg.pin_miso = 6;
+      cfg.pin_cs   = 3;
+      _touch_instance.config(cfg);
+      _panel_instance.setTouch(&_touch_instance);
     }
     setPanel(&_panel_instance);
   }
@@ -304,7 +325,7 @@ void llmTask(void *pvParameters) {
                 if (apiKey.length() == 0) {
                     Serial.println("🧠 llmTask: Aborting. No API Key set!");
                     eyes.setEmotion(SAD);
-                    eyes.showSpeechBubble("Please set API Key in App");
+                    chatUI.addMessage("Please set API Key in App", false);
                     emotionOverrideTimer = millis() + 5000;
                     hasEmotionOverride = true;
                     llm_record_index = 0;
@@ -323,16 +344,17 @@ void llmTask(void *pvParameters) {
                 
                 if (transcribedText.length() > 0) {
                     Serial.println("You said: " + transcribedText);
+                    chatUI.addMessage(transcribedText, true);
                     
                     eyes.isWaiting = true;
                     String answer = GroqClient::chatCompletion(transcribedText);
                     eyes.isWaiting = false;
                     Serial.println("Robot answers: " + answer);
                     
-                    eyes.showSpeechBubble(answer);
+                    chatUI.addMessage(answer, false);
                 } else {
                     Serial.println("🧠 llmTask: Transcribed text was empty.");
-                    eyes.showSpeechBubble("Could not hear you properly.");
+                    chatUI.addMessage("Could not hear you properly.", false);
                 }
                 } // End of apiKey else block
             } else {
@@ -517,6 +539,7 @@ void setup() {
   sprite.setPsram(true);
   sprite.createSprite(240, 192);
   eyes.init();
+  chatUI.init(&display);
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
   eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
   eyes.sbShowTime      = preferences.getBool("sb_time", false);
@@ -1014,9 +1037,14 @@ void loop() {
   eyes.update();
   eyes.draw(&sprite);
 
-  // Push the 160x128 sprite to the top-left corner of the 240x320 ILI9341 display.
+  // Push the 240x192 sprite to the top-left corner of the 240x320 ILI9341 display.
   // No rotation correction needed — display is mounted right-side up.
   sprite.pushSprite(&display, 0, 0);
+
+  int16_t touchX = 0, touchY = 0;
+  bool isScreenTouched = display.getTouch(&touchX, &touchY);
+  chatUI.update(isScreenTouched, touchY);
+  chatUI.draw();
 
   // Yield to allow background tasks (like LLM) to run if they share the same priority
   vTaskDelay(pdMS_TO_TICKS(1));
