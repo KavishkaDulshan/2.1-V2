@@ -121,7 +121,7 @@ public:
       cfg.y_max      = 319;
       cfg.pin_int    = -1; // Unconnected
       cfg.bus_shared = true;
-      cfg.offset_rotation = 0;
+      cfg.offset_rotation = 1;
       cfg.spi_host = SPI2_HOST;
       cfg.freq = 1000000;
       cfg.pin_sclk = 12;
@@ -799,11 +799,11 @@ void loop() {
   if (!isTouched) llm_armed = false;
   
   static bool wasTouched = false;
+  static bool wasRawTouchedForTap = false;
   static unsigned long lastTapTime = 0;
   static int tapCount = 0;
-  bool risingEdge = isTouched && !wasTouched;
   
-  if (risingEdge) {
+  if (rawTouched && !wasRawTouchedForTap) {
       unsigned long tapNow = millis();
       if (tapCount > 0 && (tapNow - lastTapTime < 500)) {
           tapCount++;
@@ -812,6 +812,8 @@ void loop() {
       }
       lastTapTime = tapNow;
   }
+  wasRawTouchedForTap = rawTouched;
+  
   if (tapCount > 0 && (millis() - lastTapTime > 500)) {
       tapCount = 0;
   }
@@ -824,7 +826,7 @@ void loop() {
       wakeupFromTouch = false;
   }
 
-  if (tapCount >= 2 && !innocentOverride && !isSleeping && curEmotion != ANGRY && curEmotion != DIZZY) {
+  if (tapCount >= 3 && !innocentOverride && !isSleeping && curEmotion != ANGRY && curEmotion != DIZZY) {
       eyes.setEmotion(INNOCENT);
       emotionOverrideTimer = millis();
       hasEmotionOverride   = true;
@@ -907,14 +909,14 @@ void loop() {
               wakeupTouchTime     = millis();
           }
           if (wakeupFromTouch && curEmotion == WAKEUP && (millis() - wakeupTouchTime > 700)) {
-              eyes.setEmotion(HAPPY);
+              eyes.setEmotion(random(0, 2) == 0 ? HAPPY : INNOCENT);
               emotionOverrideTimer = millis();
               hasEmotionOverride   = true;
               wakeupFromTouch      = false;
           }
       } else if (curEmotion == WAKEUP && wakeupFromTouch) {
           if (millis() - wakeupTouchTime > 700) {
-              eyes.setEmotion(HAPPY);
+              eyes.setEmotion(random(0, 2) == 0 ? HAPPY : INNOCENT);
               emotionOverrideTimer = millis();
               hasEmotionOverride   = true;
               wakeupFromTouch      = false;
