@@ -339,7 +339,7 @@ void RobotEyes::update()
       }
     }
     
-    // Center is 96, edge is -20. Total dist is 116. Halfway is 38.
+    // Center is 64, edge is -20. Total dist is 84. Halfway is 22.
     if (activeCount < MAX_ZZZ && (activeCount == 0 || highestY <= 38.0f)) {
       shouldSpawn = true;
     }
@@ -349,7 +349,7 @@ void RobotEyes::update()
         if (!zParticles[i].active) {
           zParticles[i].active = true;
           zParticles[i].x = 120; // middle of the screen
-          zParticles[i].y = 96; // middle of the screen
+          zParticles[i].y = 64; // middle of the screen
           zParticles[i].size = 0.5f;
           zParticles[i].spawnTime = now;
           break;
@@ -807,7 +807,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
 
   if (currentEmotion == WARNING_ANIM) {
     int wX = (240 - WARNING_FRAME_WIDTH) / 2;
-    int wY = (192 - WARNING_FRAME_HEIGHT) / 2;
+    int wY = (128 - WARNING_FRAME_HEIGHT) / 2;
     spr->drawBitmap(wX, wY, warning_frames[warningFrame], WARNING_FRAME_WIDTH, WARNING_FRAME_HEIGHT, 0xF800);
     spr->setTextColor(0xF800, TFT_BLACK);
     spr->setTextDatum(textdatum_t::top_center);
@@ -816,7 +816,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
   }
   
   int centerX = 120 + (int)eyeOffsetX;
-  int centerY = 96 + (int)eyeOffsetY;
+  int centerY = 64 + (int)eyeOffsetY;
   int drawY = centerY;
 
   if (currentEmotion == ALARM_RINGING) {
@@ -854,7 +854,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         // Scatter stars randomly
         for (int i = 0; i < MAX_CLOCK_STARS; i++) {
             clockStars[i].x           = random(0, 240);
-            clockStars[i].y           = random(0, 192);
+            clockStars[i].y           = random(0, 128);
             clockStars[i].twinkleAngle = (float)(random(0, 628)) / 100.0f;
             clockStars[i].twinkleSpeed = 0.03f + (float)(random(0, 50)) / 1000.0f;
             clockStars[i].size        = random(1, 3);
@@ -869,7 +869,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         // Spawn rain drops
         for (int i = 0; i < MAX_RAIN_DROPS; i++) {
             rainDrops[i].x      = random(0, 240);
-            rainDrops[i].y      = random(-30, 192);
+            rainDrops[i].y      = random(-30, 128);
             rainDrops[i].speed  = 1.8f + (float)(random(0, 120)) / 100.0f;
             rainDrops[i].len    = random(4, 9);
             rainDrops[i].active = true;
@@ -882,7 +882,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     
     if (h >= 9 && h < 17) {
         // Daytime: gradient from #085893 (top) to #1576ab (bottom)
-        for (int y = 0; y < 192; y++) {
+        for (int y = 0; y < 128; y++) {
             float t = (float)y / 191.0f;
             uint8_t r = 8 + (uint8_t)(t * (21 - 8));
             uint8_t g = 88 + (uint8_t)(t * (118 - 88));
@@ -1094,9 +1094,9 @@ void RobotEyes::draw(LGFX_Sprite *spr)
     displayCity.replace("%20", " ");
     // Draw a subtle text shadow (dark, no fill box)
     spr->setTextColor(0x2104);
-    spr->drawString(displayCity, 5 + 1, 192 - 1 + 1); // Slight shadow offset
-    spr->setTextColor(TFT_LIGHTGREY);
-    spr->drawString(displayCity, 5, 192 - 1);
+    spr->drawString(displayCity, 5 + 1, 128 - 1 + 1); // Slight shadow offset
+    spr->setTextColor(0xFFFF);
+    spr->drawString(displayCity, 5, 128 - 1);
 
     drawStatusBar(true); // Draw only WiFi icon on top of clock background
     return;
@@ -1413,7 +1413,7 @@ void RobotEyes::draw(LGFX_Sprite *spr)
           
           // Draw 48x48 icon centered
           int animX = 120 - 24;
-          int animY = 96 - 24;
+          int animY = 64 - 24;
           spr->drawBitmap(animX, animY, frameData[currentFrame], 48, 48, animColor);
       }
   }

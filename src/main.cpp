@@ -534,10 +534,10 @@ void setup() {
   // The 160x128 sprite covers only the top-left region; borders never get overwritten.
   display.fillScreen(TFT_BLACK);
 
-  // CRITICAL FIX: Force the 240x192 sprite (92KB) into PSRAM!
+  // CRITICAL FIX: Force the 240x128 sprite into PSRAM!
   // If left in internal SRAM, it eats too much memory and causes llmTask creation to silently fail.
   sprite.setPsram(true);
-  sprite.createSprite(240, 192);
+  sprite.createSprite(240, 128);
   eyes.init();
   chatUI.init(&display);
   eyes.enableStatusBar = preferences.getBool("sb_en", false);

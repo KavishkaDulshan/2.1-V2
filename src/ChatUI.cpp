@@ -14,9 +14,9 @@ ChatUI::ChatUI() {
 void ChatUI::init(lgfx::LGFX_Device* display) {
     _display = display;
     _sprite = new LGFX_Sprite(_display);
-    // 240x128 16-bit sprite using PSRAM if available
+    // 240x192 16-bit sprite using PSRAM if available
     _sprite->setPsram(true);
-    _sprite->createSprite(240, 128);
+    _sprite->createSprite(240, 192);
     _sprite->setTextSize(1);
     // Use a small, clean font
     _sprite->setFont(&fonts::Font2);
@@ -30,8 +30,8 @@ void ChatUI::addMessage(String text, bool isUser) {
     
     // Auto-scroll to bottom when a new message arrives
     int totalH = calculateTotalHeight();
-    if (totalH > 128) {
-        _scrollOffsetY = totalH - 128;
+    if (totalH > 192) {
+        _scrollOffsetY = totalH - 192;
     } else {
         _scrollOffsetY = 0;
     }
@@ -42,7 +42,7 @@ void ChatUI::addMessage(String text, bool isUser) {
 void ChatUI::update(bool isTouched, int touchY) {
     unsigned long now = millis();
     int totalH = calculateTotalHeight();
-    float maxScroll = (totalH > 128) ? (totalH - 128) : 0;
+    float maxScroll = (totalH > 192) ? (totalH - 192) : 0;
 
     if (isTouched) {
         if (!_isDragging) {
@@ -182,7 +182,7 @@ void ChatUI::draw() {
             currentY += estH + 5;
             continue;
         }
-        if (currentY > 128) {
+        if (currentY > 192) {
             break; // rest are below screen
         }
 
@@ -199,6 +199,6 @@ void ChatUI::draw() {
         currentY += msgH + 5;
     }
     
-    _sprite->pushSprite(0, 192); // Draw to bottom of 240x320 screen
+    _sprite->pushSprite(0, 128); // Draw to bottom of 240x320 screen
     _needsRedraw = false;
 }
