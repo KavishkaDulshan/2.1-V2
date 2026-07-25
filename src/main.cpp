@@ -16,6 +16,7 @@
 #include "RobotEyes.h"
 #include "ChatUI.h"
 #include "ClockUI.h"
+#include "DashboardUI.h"
 #include "GroqClient.h"
 #include "MqttManager.h"
 #include <time.h>
@@ -76,6 +77,8 @@ Adafruit_MPU6050 mpu;
 RobotEyes eyes;
 ChatUI chatUI;
 ClockUI clockUI;
+DashboardUI dashboardUI;
+bool isDashboardActive = false;
 
 // Display Setup
 class LGFX : public lgfx::LGFX_Device {
@@ -565,6 +568,7 @@ void setup() {
   eyes.init();
   chatUI.init(&display);
   clockUI.init(&display);
+  dashboardUI.init(&display);
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
   eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
   eyes.sbShowTime      = preferences.getBool("sb_time", false);
@@ -1069,99 +1073,131 @@ void loop() {
       analogWrite(VIBE_PIN, 0);
   }
 
-  eyes.update();
-
-  static bool wasClockMode = false;
-  bool isClockMode = (eyes.getEmotion() == CLOCK_MODE);
+  // ================= GLOBAL TOUCH HANDLING =================
+  int16_t tx = 0, ty = 0;
+  bool isScreenTouched = display.getTouch(&tx, &ty);
+  static bool wasScreenTouched = false;
   
-  if (wasClockMode && !isClockMode) {
-      display.fillScreen(TFT_BLACK);
-      chatUI.forceRedraw();
-  } else if (!wasClockMode && isClockMode) {
-      display.fillScreen(TFT_BLACK);
-  }
-  wasClockMode = isClockMode;
-
-  if (isClockMode) {
-      static unsigned long clockTouchStart = 0;
-      unsigned long now = millis();
-      int16_t tx = 0, ty = 0;
-      bool isScreenTouched = display.getTouch(&tx, &ty);
-      if (isScreenTouched) {
-          tx = 240 - tx;
-          ty = 320 - ty;
-      }
+  if (isScreenTouched) {
+      // Hardware Empirical Calibration Mapping
+      tx = map(tx, 2735, 254, 0, 240);
+      ty = map(ty, -4718, -184, 0, 320);
       
-      if (isScreenTouched && tx > 80 && tx < 160 && ty > 120 && ty < 200) {
-          if (clockTouchStart == 0) {
-              clockTouchStart = now;
-          } else if (now - clockTouchStart > 1000) {
-              eyes.setEmotion(WAKEUP);
-              eyes.baseEmotion = NEUTRAL;
+      if (tx < 0) tx = 0; else if (tx > 240) tx = 240;
+      if (ty < 0) ty = 0; else if (ty > 320) ty = 320;
+  }
+
+  // Dashboard Swipe Activation Logic (Left edge to Right)
+  static int16_t swipeStartX = -1;
+  if (isScreenTouched && !wasScreenTouched) {
+      if (tx < 30) {
+          swipeStartX = tx;
+      } else {
+          swipeStartX = -1;
+      }
+  } else if (isScreenTouched && swipeStartX != -1) {
+      if (tx - swipeStartX > 60) {
+          isDashboardActive = true;
+          dashboardUI.reset();
+          swipeStartX = -1;
+      }
+  } else if (!isScreenTouched) {
+      swipeStartX = -1;
+  }
+  
+  // ================= UI ROUTING =================
+  if (isDashboardActive) {
+      // Update external state
+      dashboardUI.setWifiStatus(WiFi.status() == WL_CONNECTED, savedSsid);
+      dashboardUI.setApiStatus(preferences.getString("groq_key", "").length() > 0);
+      
+      // Update and Draw Dashboard
+      dashboardUI.update(isScreenTouched, tx, ty);
+      dashboardUI.draw();
+      
+      if (dashboardUI.wantsToClose()) {
+          isDashboardActive = false;
+          display.fillScreen(TFT_BLACK);
+          chatUI.forceRedraw();
+      }
+  } else {
+      eyes.update();
+
+      static bool wasClockMode = false;
+      bool isClockMode = (eyes.getEmotion() == CLOCK_MODE);
+      
+      if (wasClockMode && !isClockMode) {
+          display.fillScreen(TFT_BLACK);
+          chatUI.forceRedraw();
+      } else if (!wasClockMode && isClockMode) {
+          display.fillScreen(TFT_BLACK);
+      }
+      wasClockMode = isClockMode;
+
+      if (isClockMode) {
+          static unsigned long clockTouchStart = 0;
+          unsigned long now = millis();
+          
+          if (isScreenTouched && tx > 80 && tx < 160 && ty > 120 && ty < 200) {
+              if (clockTouchStart == 0) {
+                  clockTouchStart = now;
+              } else if (now - clockTouchStart > 1000) {
+                  eyes.setEmotion(WAKEUP);
+                  eyes.baseEmotion = NEUTRAL;
+                  clockTouchStart = 0;
+              }
+          } else {
               clockTouchStart = 0;
           }
-      } else {
-          clockTouchStart = 0;
-      }
-      
-      clockUI.draw(eyes, weatherCity);
-  } else {
-      eyes.draw(&sprite);
-
-      // Push the 240x128 sprite to the top-left corner of the 240x320 ILI9341 display.
-      sprite.pushSprite(&display, 0, 0);
-
-      static bool touchLockedToEyes = false;
-      static bool touchLockedToChat = false;
-
-      int16_t tx = 0, ty = 0;
-      bool isScreenTouched = display.getTouch(&tx, &ty);
-      
-      if (isScreenTouched) {
-          // Hardware Empirical Calibration Mapping
-          tx = map(tx, 2735, 254, 0, 240);
-          ty = map(ty, -4718, -184, 0, 320);
           
-          if (tx < 0) tx = 0; else if (tx > 240) tx = 240;
-          if (ty < 0) ty = 0; else if (ty > 320) ty = 320;
-      }
-      
-      // Lock touch to the initial zone to prevent cross-zone swiping bugs
-      if (isScreenTouched) {
-          if (!wasTouched) {
-              if (ty < 128) {
-                  touchLockedToEyes = true;
-                  touchLockedToChat = false;
-              } else {
-                  touchLockedToChat = true;
-                  touchLockedToEyes = false;
-              }
-          }
+          clockUI.draw(eyes, weatherCity);
       } else {
-          touchLockedToEyes = false;
-          touchLockedToChat = false;
-      }
-      
-      // Route touch based on locked zone
-      if (isScreenTouched && touchLockedToEyes && (eyes.getEmotion() == NEUTRAL || eyes.getEmotion() == GUARDING)) {
-          // Left Eye Bounding Box
-          if (tx > 30 && tx < 90 && ty > 30 && ty < 100) {
-              eyes.setPokedEye(-1);
-          } 
-          // Right Eye Bounding Box
-          else if (tx > 150 && tx < 210 && ty > 30 && ty < 100) {
-              eyes.setPokedEye(1);
+          eyes.draw(&sprite);
+
+          // Push the 240x128 sprite to the top-left corner
+          sprite.pushSprite(&display, 0, 0);
+
+          static bool touchLockedToEyes = false;
+          static bool touchLockedToChat = false;
+          
+          // Lock touch to the initial zone to prevent cross-zone swiping bugs
+          if (isScreenTouched) {
+              if (!wasScreenTouched) {
+                  if (ty < 128) {
+                      touchLockedToEyes = true;
+                      touchLockedToChat = false;
+                  } else {
+                      touchLockedToChat = true;
+                      touchLockedToEyes = false;
+                  }
+              }
+          } else {
+              touchLockedToEyes = false;
+              touchLockedToChat = false;
+          }
+          
+          // Route touch based on locked zone
+          if (isScreenTouched && touchLockedToEyes && (eyes.getEmotion() == NEUTRAL || eyes.getEmotion() == GUARDING)) {
+              if (tx > 30 && tx < 90 && ty > 30 && ty < 100) {
+                  eyes.setPokedEye(-1);
+              } 
+              else if (tx > 150 && tx < 210 && ty > 30 && ty < 100) {
+                  eyes.setPokedEye(1);
+              } else {
+                  eyes.setPokedEye(0);
+              }
           } else {
               eyes.setPokedEye(0);
           }
-      } else {
-          eyes.setPokedEye(0);
+          
+          bool isChatTouched = isScreenTouched && touchLockedToChat;
+          chatUI.update(isChatTouched, ty);
+          chatUI.draw();
       }
-      
-      bool isChatTouched = isScreenTouched && touchLockedToChat;
-      chatUI.update(isChatTouched, ty);
-      chatUI.draw();
   }
+
+  // Final State Propagation for next loop iteration
+  wasScreenTouched = isScreenTouched;
 
   // Yield to allow background tasks (like LLM) to run if they share the same priority
   vTaskDelay(pdMS_TO_TICKS(1));

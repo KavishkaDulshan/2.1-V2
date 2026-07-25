@@ -25,3 +25,8 @@ When implementing full-screen modes (like Clock or Dashboards) on a split-screen
 - **DO NOT** hijack a smaller sub-sprite (e.g., a 128px eye sprite) to draw the mode.
 - **ALWAYS** decouple the full-screen mode into its own dedicated class/sprite (e.g., `ClockUI` at 240x320).
 - Selectively skip the split-screen rendering (eyes and chat) in the main loop when the full-screen mode is active.
+
+## Touch State Management & Propagation
+When propagating global touch states (like `isScreenTouched` and `wasScreenTouched`) across multiple conditional UI layers (Dashboard, Clock, Eyes, Chat) in the main loop:
+- **ALWAYS** update the previous state variable (e.g., `wasScreenTouched = isScreenTouched;`) at the **very END** of the execution loop (e.g., right before `vTaskDelay()`).
+- **NEVER** update `wasScreenTouched` prematurely in the middle of the loop, as downstream UI components relying on `if (isScreenTouched && !wasScreenTouched)` for one-shot touch locks will fail.
