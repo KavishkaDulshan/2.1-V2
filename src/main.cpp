@@ -349,8 +349,27 @@ void llmTask(void *pvParameters) {
                     Serial.println("You said: " + transcribedText);
                     chatUI.addMessage(transcribedText, true);
                     
+                    String emotionStr = "Neutral";
+                    switch(eyes.getEmotion()) {
+                        case HAPPY: emotionStr = "Happy"; break;
+                        case ANGRY: emotionStr = "Angry"; break;
+                        case SAD: emotionStr = "Sad"; break;
+                        case SLEEPY: emotionStr = "Sleepy"; break;
+                        case DIZZY: emotionStr = "Dizzy"; break;
+                        case PANIC: emotionStr = "Panicked"; break;
+                        case INNOCENT: emotionStr = "Innocent and Playful"; break;
+                        case CLOCK_MODE: emotionStr = "Displaying Clock Dashboard"; break;
+                        case WAKEUP: emotionStr = "Just Woke Up"; break;
+                        default: emotionStr = "Neutral"; break;
+                    }
+                    
+                    String sysContext = "You are Two Point One (2.1), an intelligent, expressive desktop robot companion with capacitive touch sensors, dynamic animated eyes, and live environmental awareness. "
+                                        "Live Context — Location: " + weatherCity + " | Weather: " + String((int)eyes.weatherTemp) + "°C, " + eyes.weatherCondition + " | "
+                                        "Local Time: " + eyes.timeString + " | Current Emotional State: " + emotionStr + ". "
+                                        "Engage warmly, naturally, and intelligently using this live context when relevant. Keep your conversational answers concise (under 45 words) to display smoothly on your touchscreen chat interface.";
+                    
                     eyes.isWaiting = true;
-                    String answer = GroqClient::chatCompletion(transcribedText);
+                    String answer = GroqClient::chatCompletion(chatUI.getMessages(), sysContext);
                     eyes.isWaiting = false;
                     Serial.println("Robot answers: " + answer);
                     

@@ -158,23 +158,28 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
     return transcribedText;
 }
 
-String GroqClient::chatCompletion(const String& prompt) {
-    if (prompt.length() == 0) return "";
+String GroqClient::chatCompletion(const std::vector<ChatMessage>& history, const String& systemContext) {
+    if (history.empty()) return "";
 
-    Serial.println("Sending to Llama 3 (esp_http_client)...");
+    Serial.println("Sending conversational history to Llama 3 (esp_http_client)...");
 
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(8192);
     doc["model"] = "llama-3.1-8b-instant";
     
     JsonArray messages = doc.createNestedArray("messages");
     
     JsonObject sysMsg = messages.createNestedObject();
     sysMsg["role"] = "system";
-    sysMsg["content"] = "You are an intelligent, friendly robot companion named Two Point One. Keep your answers extremely short, compact, and under 15 words, as they will be displayed on a tiny 160x128 pixel screen.";
+    sysMsg["content"] = systemContext;
     
-    JsonObject userMsg = messages.createNestedObject();
-    userMsg["role"] = "user";
-    userMsg["content"] = prompt;
+    // Pass up to the last 10 turns of conversation history
+    int maxHistory = 10;
+    int startIdx = (history.size() > (size_t)maxHistory) ? (int)history.size() - maxHistory : 0;
+    for (size_t i = startIdx; i < history.size(); i++) {
+        JsonObject msg = messages.createNestedObject();
+        msg["role"] = history[i].isUser ? "user" : "assistant";
+        msg["content"] = history[i].text;
+    }
 
     String jsonPayload;
     serializeJson(doc, jsonPayload);
@@ -205,7 +210,7 @@ String GroqClient::chatCompletion(const String& prompt) {
     
     String answerText = "Error";
     if (err == ESP_OK && statusCode == 200) {
-        DynamicJsonDocument resDoc(2048);
+        DynamicJsonDocument resDoc(4096);
         DeserializationError error = deserializeJson(resDoc, http_response_buffer);
         if (!error) {
             answerText = resDoc["choices"][0]["message"]["content"].as<String>();

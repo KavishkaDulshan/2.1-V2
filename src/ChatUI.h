@@ -20,6 +20,7 @@ public:
     void update(bool isTouched, int touchY); 
     void draw();
     void forceRedraw() { _needsRedraw = true; }
+    const std::vector<ChatMessage>& getMessages() const { return _messages; }
 
 private:
     lgfx::LGFX_Device* _display;
