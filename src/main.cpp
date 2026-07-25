@@ -998,13 +998,21 @@ void loop() {
   }
 
   // 3-second emotion override timeout (e.g., recovering from Startled/Angry)
-  if (hasEmotionOverride && !isTouched && !innocentOverride && (millis() - emotionOverrideTimer > 3000)) {
+  if (hasEmotionOverride && !isTouched && !innocentOverride && (millis() - emotionOverrideTimer > 2000)) {
       if (guardMode) {
           eyes.setEmotion(GUARDING); // Return to Guarding!
       } else {
           eyes.setEmotion(eyes.baseEmotion);
       }
       hasEmotionOverride = false;
+  }
+  
+  // Interactive Eye Poking Easter Egg Trigger
+  if (eyes.getPokeCount() >= 3 && !hasEmotionOverride && (eyes.getEmotion() == NEUTRAL || eyes.getEmotion() == GUARDING)) {
+      eyes.setEmotion(ANGRY);
+      eyes.resetPokeCount();
+      hasEmotionOverride = true;
+      emotionOverrideTimer = millis();
   }
 
   // Idle fallback logic (only if not guarding and no overrides)
@@ -1076,13 +1084,18 @@ void loop() {
 
   if (isClockMode) {
       static unsigned long clockTouchStart = 0;
+      unsigned long now = millis();
       int16_t tx = 0, ty = 0;
       bool isScreenTouched = display.getTouch(&tx, &ty);
-      
       if (isScreenTouched) {
+          tx = 240 - tx;
+          ty = 320 - ty;
+      }
+      
+      if (isScreenTouched && tx > 80 && tx < 160 && ty > 120 && ty < 200) {
           if (clockTouchStart == 0) {
-              clockTouchStart = millis();
-          } else if (millis() - clockTouchStart > 1000) {
+              clockTouchStart = now;
+          } else if (now - clockTouchStart > 1000) {
               eyes.setEmotion(WAKEUP);
               eyes.baseEmotion = NEUTRAL;
               clockTouchStart = 0;
@@ -1098,9 +1111,47 @@ void loop() {
       // Push the 240x128 sprite to the top-left corner of the 240x320 ILI9341 display.
       sprite.pushSprite(&display, 0, 0);
 
-      int16_t touchX = 0, touchY = 0;
-      bool isScreenTouched = display.getTouch(&touchX, &touchY);
-      chatUI.update(isScreenTouched, touchY);
+      static bool touchLockedToEyes = false;
+      static bool touchLockedToChat = false;
+
+      int16_t tx = 0, ty = 0;
+      bool isScreenTouched = display.getTouch(&tx, &ty);
+      
+      if (isScreenTouched) {
+          // Hardware Empirical Calibration Mapping
+          tx = map(tx, 2735, 254, 0, 240);
+          ty = map(ty, -4718, -184, 0, 320);
+          
+          if (tx < 0) tx = 0; else if (tx > 240) tx = 240;
+          if (ty < 0) ty = 0; else if (ty > 320) ty = 320;
+      }
+      
+      // Lock touch to the initial zone to prevent cross-zone swiping bugs
+      if (isScreenTouched) {
+          if (!wasTouched) {
+              if (ty < 128) {
+                  touchLockedToEyes = true;
+                  touchLockedToChat = false;
+              } else {
+                  touchLockedToChat = true;
+                  touchLockedToEyes = false;
+              }
+          }
+      } else {
+          touchLockedToEyes = false;
+          touchLockedToChat = false;
+      }
+      
+      // Route touch based on locked zone
+      if (isScreenTouched && touchLockedToEyes && (eyes.getEmotion() == NEUTRAL || eyes.getEmotion() == GUARDING)) {
+          if (tx < 120) eyes.setPokedEye(-1);
+          else eyes.setPokedEye(1);
+      } else {
+          eyes.setPokedEye(0);
+      }
+      
+      bool isChatTouched = isScreenTouched && touchLockedToChat;
+      chatUI.update(isChatTouched, ty);
       chatUI.draw();
   }
 

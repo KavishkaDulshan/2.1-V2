@@ -169,6 +169,13 @@ private:
   unsigned long zSpawnTimer = 0;
   int panicSweatSide = 1; // which eye side
 
+  // --- NEW: INTERACTIVE EYE POKING ---
+  int pokedEyeSide = 0; // -1 = Left, 1 = Right, 0 = None
+  float leftPokeBlink = 0.0f;
+  float rightPokeBlink = 0.0f;
+  unsigned long lastPokeTrigger = 0;
+  int pokeCount = 0;
+
   // --- NEW: NEUTRAL IDLE GAZE ---
   float idleDriftAngle = 0.0f;
   float idleDriftX = 0.0f, idleDriftY = 0.0f;
@@ -218,6 +225,9 @@ public:
   void lookAt(float x, float y);
   void setEyeOffset(float x, float y);
   void setEmotion(Emotion e);
+  void setPokedEye(int side);
+  int getPokeCount() { return pokeCount; }
+  void resetPokeCount() { pokeCount = 0; }
   void setMpuActive(bool active) { mpuActive = active; }
   Emotion getEmotion() { return currentEmotion; }
   Emotion baseEmotion = NEUTRAL; // Default mode to return to (NEUTRAL or CLOCK_MODE)

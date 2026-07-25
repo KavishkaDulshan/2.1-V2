@@ -210,6 +210,21 @@ void RobotEyes::setEyeOffset(float x, float y)
   targetEyeOffsetY = constrain(y, -15.0, 15.0);
 }
 
+void RobotEyes::setPokedEye(int side) {
+  unsigned long now = millis();
+  
+  if (side != 0 && side != pokedEyeSide) {
+      if (now - lastPokeTrigger < 800) {
+          pokeCount++;
+      } else {
+          pokeCount = 1;
+      }
+      lastPokeTrigger = now;
+  }
+  
+  pokedEyeSide = side;
+}
+
 void RobotEyes::update()
 {
   // Smooth movement for Pupil
@@ -752,6 +767,19 @@ void RobotEyes::update()
       }
       targetX += (idleTargetX - targetX) * 0.02f;
       targetY += (idleTargetY - targetY) * 0.02f;
+    }
+
+    // --- NEW: POKE BLINK & GAZE PHYSICS ---
+    if (pokedEyeSide == -1) leftPokeBlink += (1.0f - leftPokeBlink) * 0.3f;
+    else leftPokeBlink += (0.0f - leftPokeBlink) * 0.3f;
+    
+    if (pokedEyeSide == 1) rightPokeBlink += (1.0f - rightPokeBlink) * 0.3f;
+    else rightPokeBlink += (0.0f - rightPokeBlink) * 0.3f;
+    
+    if (pokedEyeSide == -1) {
+        targetX = -18.0f; // Look hard left
+    } else if (pokedEyeSide == 1) {
+        targetX = 18.0f; // Look hard right
     }
   }
 }
@@ -1333,6 +1361,9 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
   uint16_t scleraColor = TFT_WHITE;
   int eW = (wOverride > 0) ? wOverride : eyeW;
   int eH = (hOverride > 0) ? hOverride : eyeH;
+  
+  float pokeBlink = (side == -1) ? leftPokeBlink : rightPokeBlink;
+  float localBlink = max(max(blinkState, transitionBlink), pokeBlink);
 
   // HAPPY
   if (currentEmotion == HAPPY)
@@ -1415,7 +1446,7 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
   // GUARDING (with large dilated pupils + peeking asymmetry handled in draw())
   if (currentEmotion == GUARDING)
   {
-    float effectiveBlink = max(blinkState, transitionBlink);
+    float effectiveBlink = localBlink;
     int h = max(2, (int)(eH * (1.0f - effectiveBlink)));
 
     spr->fillRoundRect(x - eW / 2, y - h / 2, eW, h, eyeR, scleraColor);
@@ -1435,7 +1466,7 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
   }
 
   // STANDARD RENDERING (Neutral, Angry, Sad, Dizzy, Wakeup, Panic)
-  float effectiveBlink = max(blinkState, transitionBlink);
+  float effectiveBlink = localBlink;
   int h = max(2, (int)(eH * (1.0f - effectiveBlink)));
 
   // SAD: droopy top lid (shallow black arc clipping the top)
