@@ -1144,8 +1144,16 @@ void loop() {
       
       // Route touch based on locked zone
       if (isScreenTouched && touchLockedToEyes && (eyes.getEmotion() == NEUTRAL || eyes.getEmotion() == GUARDING)) {
-          if (tx < 120) eyes.setPokedEye(-1);
-          else eyes.setPokedEye(1);
+          // Left Eye Bounding Box
+          if (tx > 30 && tx < 90 && ty > 30 && ty < 100) {
+              eyes.setPokedEye(-1);
+          } 
+          // Right Eye Bounding Box
+          else if (tx > 150 && tx < 210 && ty > 30 && ty < 100) {
+              eyes.setPokedEye(1);
+          } else {
+              eyes.setPokedEye(0);
+          }
       } else {
           eyes.setPokedEye(0);
       }

@@ -49,8 +49,8 @@ void ChatUI::update(bool isTouched, int touchY) {
             _isDragging = true;
             _velocity = 0;
         } else {
-            // Delta Y: user requested reversed "non-natural" scrolling direction
-            float delta = touchY - _lastTouchY;
+            // Delta Y: dragging UP scrolls down into messages (natural scrolling)
+            float delta = _lastTouchY - touchY;
             if (delta != 0) {
                 _scrollOffsetY += delta;
                 _needsRedraw = true;
