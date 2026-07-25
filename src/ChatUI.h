@@ -19,6 +19,7 @@ public:
     // Call every frame in loop()
     void update(bool isTouched, int touchY); 
     void draw();
+    void forceRedraw() { _needsRedraw = true; }
 
 private:
     lgfx::LGFX_Device* _display;

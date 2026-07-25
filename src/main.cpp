@@ -1042,7 +1042,18 @@ void loop() {
 
   eyes.update();
 
-  if (eyes.getEmotion() == CLOCK_MODE) {
+  static bool wasClockMode = false;
+  bool isClockMode = (eyes.getEmotion() == CLOCK_MODE);
+  
+  if (wasClockMode && !isClockMode) {
+      display.fillScreen(TFT_BLACK);
+      chatUI.forceRedraw();
+  } else if (!wasClockMode && isClockMode) {
+      display.fillScreen(TFT_BLACK);
+  }
+  wasClockMode = isClockMode;
+
+  if (isClockMode) {
       static unsigned long clockTouchStart = 0;
       int16_t tx = 0, ty = 0;
       bool isScreenTouched = display.getTouch(&tx, &ty);
