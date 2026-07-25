@@ -14,6 +14,8 @@
 #include <ArduinoJson.h>
 #include "BleManager.h"
 #include "RobotEyes.h"
+#include "ChatUI.h"
+#include "ClockUI.h"
 #include "GroqClient.h"
 #include "MqttManager.h"
 #include <time.h>
@@ -73,6 +75,7 @@ String savedPass = "";
 Adafruit_MPU6050 mpu;
 RobotEyes eyes;
 ChatUI chatUI;
+ClockUI clockUI;
 
 // Display Setup
 class LGFX : public lgfx::LGFX_Device {
@@ -540,6 +543,7 @@ void setup() {
   sprite.createSprite(240, 128);
   eyes.init();
   chatUI.init(&display);
+  clockUI.init(&display);
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
   eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
   eyes.sbShowTime      = preferences.getBool("sb_time", false);
@@ -1037,16 +1041,36 @@ void loop() {
   }
 
   eyes.update();
-  eyes.draw(&sprite);
 
-  // Push the 240x192 sprite to the top-left corner of the 240x320 ILI9341 display.
-  // No rotation correction needed — display is mounted right-side up.
-  sprite.pushSprite(&display, 0, 0);
+  if (eyes.getEmotion() == CLOCK_MODE) {
+      static unsigned long clockTouchStart = 0;
+      int16_t tx = 0, ty = 0;
+      bool isScreenTouched = display.getTouch(&tx, &ty);
+      
+      if (isScreenTouched) {
+          if (clockTouchStart == 0) {
+              clockTouchStart = millis();
+          } else if (millis() - clockTouchStart > 1000) {
+              eyes.setEmotion(WAKEUP);
+              eyes.baseEmotion = NEUTRAL;
+              clockTouchStart = 0;
+          }
+      } else {
+          clockTouchStart = 0;
+      }
+      
+      clockUI.draw(eyes, weatherCity);
+  } else {
+      eyes.draw(&sprite);
 
-  int16_t touchX = 0, touchY = 0;
-  bool isScreenTouched = display.getTouch(&touchX, &touchY);
-  chatUI.update(isScreenTouched, touchY);
-  chatUI.draw();
+      // Push the 240x128 sprite to the top-left corner of the 240x320 ILI9341 display.
+      sprite.pushSprite(&display, 0, 0);
+
+      int16_t touchX = 0, touchY = 0;
+      bool isScreenTouched = display.getTouch(&touchX, &touchY);
+      chatUI.update(isScreenTouched, touchY);
+      chatUI.draw();
+  }
 
   // Yield to allow background tasks (like LLM) to run if they share the same priority
   vTaskDelay(pdMS_TO_TICKS(1));
