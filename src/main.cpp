@@ -17,6 +17,7 @@
 #include "ChatUI.h"
 #include "ClockUI.h"
 #include "DashboardUI.h"
+#include "SettingsUI.h"
 #include "GroqClient.h"
 #include "MqttManager.h"
 #include <time.h>
@@ -78,7 +79,9 @@ RobotEyes eyes;
 ChatUI chatUI;
 ClockUI clockUI;
 DashboardUI dashboardUI;
+SettingsUI settingsUI;
 bool isDashboardActive = false;
+bool isSettingsActive = false;
 
 // Display Setup
 class LGFX : public lgfx::LGFX_Device {
@@ -569,6 +572,7 @@ void setup() {
   chatUI.init(&display);
   clockUI.init(&display);
   dashboardUI.init(&display);
+  settingsUI.init(&display, &preferences);
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
   eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
   eyes.sbShowTime      = preferences.getBool("sb_time", false);
@@ -1087,18 +1091,24 @@ void loop() {
       if (ty < 0) ty = 0; else if (ty > 320) ty = 320;
   }
 
-  // Dashboard Swipe Activation Logic (Left edge to Right)
+  // Swipe Activation Logic (Left to Right = Dashboard, Right to Left = Settings)
   static int16_t swipeStartX = -1;
   if (isScreenTouched && !wasScreenTouched) {
-      if (tx < 30) {
+      if (tx < 30 || tx > 210) {
           swipeStartX = tx;
       } else {
           swipeStartX = -1;
       }
   } else if (isScreenTouched && swipeStartX != -1) {
-      if (tx - swipeStartX > 60) {
+      if (swipeStartX < 30 && (tx - swipeStartX > 60)) {
           isDashboardActive = true;
+          isSettingsActive = false;
           dashboardUI.reset();
+          swipeStartX = -1;
+      } else if (swipeStartX > 210 && (swipeStartX - tx > 60)) {
+          isSettingsActive = true;
+          isDashboardActive = false;
+          settingsUI.reset();
           swipeStartX = -1;
       }
   } else if (!isScreenTouched) {
@@ -1106,7 +1116,33 @@ void loop() {
   }
   
   // ================= UI ROUTING =================
-  if (isDashboardActive) {
+  if (isSettingsActive) {
+      // Push state
+      settingsUI.setClockMode(eyes.getEmotion() == CLOCK_MODE);
+      
+      settingsUI.update(isScreenTouched, tx, ty);
+      settingsUI.draw();
+      
+      // Pull state
+      if (settingsUI.isClockMode() && eyes.getEmotion() != CLOCK_MODE) {
+          eyes.setEmotion(CLOCK_MODE);
+          eyes.baseEmotion = CLOCK_MODE;
+      } else if (!settingsUI.isClockMode() && eyes.getEmotion() == CLOCK_MODE) {
+          eyes.setEmotion(HAPPY);
+          eyes.baseEmotion = HAPPY;
+      }
+      
+      // Refresh status bar dynamically
+      eyes.enableStatusBar = preferences.getBool("sb_en", false);
+      eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
+      eyes.sbShowTime      = preferences.getBool("sb_time", false);
+      
+      if (settingsUI.wantsToClose()) {
+          isSettingsActive = false;
+          display.fillScreen(TFT_BLACK);
+          chatUI.forceRedraw();
+      }
+  } else if (isDashboardActive) {
       // Update external state
       dashboardUI.setWifiStatus(WiFi.status() == WL_CONNECTED, savedSsid);
       dashboardUI.setApiStatus(preferences.getString("groq_key", "").length() > 0);

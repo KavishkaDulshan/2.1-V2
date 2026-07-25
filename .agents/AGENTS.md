@@ -30,3 +30,9 @@ When implementing full-screen modes (like Clock or Dashboards) on a split-screen
 When propagating global touch states (like `isScreenTouched` and `wasScreenTouched`) across multiple conditional UI layers (Dashboard, Clock, Eyes, Chat) in the main loop:
 - **ALWAYS** update the previous state variable (e.g., `wasScreenTouched = isScreenTouched;`) at the **very END** of the execution loop (e.g., right before `vTaskDelay()`).
 - **NEVER** update `wasScreenTouched` prematurely in the middle of the loop, as downstream UI components relying on `if (isScreenTouched && !wasScreenTouched)` for one-shot touch locks will fail.
+
+## LovyanGFX Touch Tap Detection (Touch Up)
+When `isScreenTouched` becomes `false` (Touch Up), LovyanGFX immediately resets `tx` and `ty` coordinates to `0, 0`.
+- **NEVER** use the current `tx`/`ty` to detect where a tap occurred during a Touch Up event.
+- **ALWAYS** capture `firstTouchX` and `firstTouchY` on the initial Touch Down.
+- On Touch Up, compare `_lastTouchX` against `firstTouchX` to determine if the movement was within a small threshold (e.g., `< 15px`) to register a tap.
