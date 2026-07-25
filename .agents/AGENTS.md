@@ -36,3 +36,7 @@ When `isScreenTouched` becomes `false` (Touch Up), LovyanGFX immediately resets 
 - **NEVER** use the current `tx`/`ty` to detect where a tap occurred during a Touch Up event.
 - **ALWAYS** capture `firstTouchX` and `firstTouchY` on the initial Touch Down.
 - On Touch Up, compare `_lastTouchX` against `firstTouchX` to determine if the movement was within a small threshold (e.g., `< 15px`) to register a tap.
+
+## Emotion State Restoration
+When exiting a full-screen override (like `CLOCK_MODE`) or resetting the robot's facial state, **ALWAYS** set `eyes.baseEmotion = NEUTRAL;` and `eyes.setEmotion(NEUTRAL);`. 
+- **NEVER** set `baseEmotion` to transient emotions like `HAPPY` or `ANGRY`, as it will permanently overwrite the robot's default idle animation loop until rebooted.

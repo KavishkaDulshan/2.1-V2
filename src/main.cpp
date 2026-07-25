@@ -1128,8 +1128,8 @@ void loop() {
           eyes.setEmotion(CLOCK_MODE);
           eyes.baseEmotion = CLOCK_MODE;
       } else if (!settingsUI.isClockMode() && eyes.getEmotion() == CLOCK_MODE) {
-          eyes.setEmotion(HAPPY);
-          eyes.baseEmotion = HAPPY;
+          eyes.setEmotion(NEUTRAL);
+          eyes.baseEmotion = NEUTRAL;
       }
       
       // Refresh status bar dynamically

@@ -58,7 +58,7 @@ void MqttManager::callback(char* topic, byte* payload, unsigned int length) {
                 else if (emotionStr == "panic") eyes->setEmotion(PANIC);
                 else if (emotionStr == "innocent") eyes->setEmotion(INNOCENT);
                 else if (emotionStr == "clock") { eyes->setEmotion(CLOCK_MODE); eyes->baseEmotion = CLOCK_MODE; }
-                else if (emotionStr == "eyes") { eyes->setEmotion(HAPPY); eyes->baseEmotion = HAPPY; }
+                else if (emotionStr == "eyes") { eyes->setEmotion(NEUTRAL); eyes->baseEmotion = NEUTRAL; }
                 else { eyes->setEmotion(NEUTRAL); eyes->baseEmotion = NEUTRAL; }
             }
         }
