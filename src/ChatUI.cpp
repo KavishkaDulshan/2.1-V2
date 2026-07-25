@@ -49,18 +49,24 @@ void ChatUI::update(bool isTouched, int touchY) {
             _isDragging = true;
             _velocity = 0;
         } else {
-            // Delta Y: dragging down means negative scroll delta (moving content up relative to view)
-            // Actually, if I swipe UP (touchY decreases), the content should move UP (scrollOffsetY increases).
+            // Delta Y: dragging UP scrolls down into messages
             float delta = _lastTouchY - touchY;
             if (delta != 0) {
                 _scrollOffsetY += delta;
                 _needsRedraw = true;
-            }
-            
-            // Calculate velocity for kinetic scrolling (moving average or instantaneous)
-            float dt = (now - _lastTouchTime) / 1000.0f;
-            if (dt > 0) {
-                _velocity = delta / dt;
+                
+                float dt = (now - _lastTouchTime) / 1000.0f;
+                if (dt > 0.001f && dt < 0.1f) {
+                    // Reduce instantaneous sensitivity and clamp maximum fling velocity
+                    float instantVel = (delta / dt) * 0.35f;
+                    if (instantVel > 450.0f) instantVel = 450.0f;
+                    if (instantVel < -450.0f) instantVel = -450.0f;
+                    // Smooth velocity using a low-pass filter
+                    _velocity = (_velocity * 0.7f) + (instantVel * 0.3f);
+                }
+            } else if (now - _lastTouchTime > 25) {
+                // Finger stopped moving before release; kill momentum
+                _velocity *= 0.3f;
             }
         }
         _lastTouchY = touchY;
@@ -70,10 +76,10 @@ void ChatUI::update(bool isTouched, int touchY) {
             _isDragging = false;
         }
         
-        // Apply kinetic friction
-        if (abs(_velocity) > 10.0f) {
-            _scrollOffsetY += _velocity * 0.016f; // approx 60fps dt
-            _velocity *= 0.90f; // Friction
+        // Apply smooth kinetic friction with stronger damping
+        if (abs(_velocity) > 5.0f) {
+            _scrollOffsetY += _velocity * 0.016f;
+            _velocity *= 0.82f; // Increased friction to prevent over-shooting and sliding too far
             _needsRedraw = true;
         } else {
             _velocity = 0;
