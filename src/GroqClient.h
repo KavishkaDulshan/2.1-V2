@@ -14,8 +14,12 @@ public:
     // Send conversation history and live system context to Llama 3 and get a conversational response
     static String chatCompletion(const std::vector<ChatMessage>& history, const String& systemContext);
 
+    // Convert text to speech using Groq Orpheus and play via MAX98357 on I2S_NUM_1
+    static void playTTS(const String& text);
+
 private:
     static void generateWavHeader(uint8_t* header, uint32_t sampleRate, uint16_t bitsPerSample, uint16_t channels, uint32_t dataSize);
+    static void initSpeakerI2S();
 };
 
 #endif

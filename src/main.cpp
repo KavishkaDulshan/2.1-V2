@@ -382,6 +382,7 @@ void llmTask(void *pvParameters) {
                     Serial.println("Robot answers: " + answer);
                     
                     chatUI.addMessage(answer, false);
+                    GroqClient::playTTS(answer);
                 } else {
                     Serial.println("🧠 llmTask: Transcribed text was empty.");
                     chatUI.addMessage("Could not hear you properly.", false);
