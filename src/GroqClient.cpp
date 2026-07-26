@@ -118,6 +118,9 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
     String tail = "\r\n--" + boundary + "\r\n"
                   "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
                   "whisper-large-v3\r\n"
+                  "--" + boundary + "\r\n"
+                  "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"
+                  "verbose_json\r\n"
                   "--" + boundary + "--\r\n";
 
     uint32_t total_len = head.length() + sizeof(wav_header) + pcm_bytes + tail.length();
@@ -171,10 +174,18 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
     if (err == ESP_OK && statusCode == 200) {
         Serial.println("Whisper Response: " + http_response_buffer);
         
-        DynamicJsonDocument doc(1024);
+        DynamicJsonDocument doc(8192); // Increased for verbose_json
         DeserializationError error = deserializeJson(doc, http_response_buffer);
         if (!error) {
-            transcribedText = doc["text"].as<String>();
+            String detectedLanguage = doc["language"].as<String>();
+            detectedLanguage.toLowerCase();
+            
+            if (detectedLanguage != "english" && detectedLanguage != "en") {
+                Serial.println("Whisper detected non-English language: " + detectedLanguage);
+                transcribedText = "[NON_ENGLISH]";
+            } else {
+                transcribedText = doc["text"].as<String>();
+            }
         }
     } else {
         Serial.printf("ERR: HTTP POST failed, esp_err: %s, code: %d\n", esp_err_to_name(err), statusCode);

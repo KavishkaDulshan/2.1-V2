@@ -352,37 +352,44 @@ void llmTask(void *pvParameters) {
                 eyes.isThinking = false;
                 
                 if (transcribedText.length() > 0) {
-                    Serial.println("You said: " + transcribedText);
-                    chatUI.addMessage(transcribedText, true);
-                    
-                    String emotionStr = "Neutral";
-                    switch(eyes.getEmotion()) {
-                        case HAPPY: emotionStr = "Happy"; break;
-                        case ANGRY: emotionStr = "Angry"; break;
-                        case SAD: emotionStr = "Sad"; break;
-                        case SLEEPY: emotionStr = "Sleepy"; break;
-                        case DIZZY: emotionStr = "Dizzy"; break;
-                        case PANIC: emotionStr = "Panicked"; break;
-                        case INNOCENT: emotionStr = "Innocent and Playful"; break;
-                        case CLOCK_MODE: emotionStr = "Displaying Clock Dashboard"; break;
-                        case WAKEUP: emotionStr = "Just Woke Up"; break;
-                        default: emotionStr = "Neutral"; break;
+                    if (transcribedText == "[NON_ENGLISH]") {
+                        String errMsg = "I'm sorry, but I can only understand English for now.";
+                        Serial.println("Robot answers: " + errMsg);
+                        chatUI.addMessage(errMsg, false);
+                        GroqClient::playTTS(errMsg);
+                    } else {
+                        Serial.println("You said: " + transcribedText);
+                        chatUI.addMessage(transcribedText, true);
+                        
+                        String emotionStr = "Neutral";
+                        switch(eyes.getEmotion()) {
+                            case HAPPY: emotionStr = "Happy"; break;
+                            case ANGRY: emotionStr = "Angry"; break;
+                            case SAD: emotionStr = "Sad"; break;
+                            case SLEEPY: emotionStr = "Sleepy"; break;
+                            case DIZZY: emotionStr = "Dizzy"; break;
+                            case PANIC: emotionStr = "Panicked"; break;
+                            case INNOCENT: emotionStr = "Innocent and Playful"; break;
+                            case CLOCK_MODE: emotionStr = "Displaying Clock Dashboard"; break;
+                            case WAKEUP: emotionStr = "Just Woke Up"; break;
+                            default: emotionStr = "Neutral"; break;
+                        }
+                        
+                        String sysContext = "You are Two Point One (2.1), a wonderfully cute, affectionate, and intelligent desktop robot companion. "
+                                            "Your sole creator, developer, and beloved owner is Kavishka Dulshan, an engineer whom you admire and respect greatly. If anyone asks who made you or owns you, proudly tell them about Kavishka Dulshan!. But never mention about him in any other context or if anybody didn't ask about him. Only mention about the creator when someone directly and specifically ask about him. "
+                                            "You have capacitive touch sensors, expressive animated eyes, and emotional awareness. "
+                                            "Live Telemetry — Location: " + weatherCity + " | Weather: " + String((int)eyes.weatherTemp) + "°C, " + eyes.weatherCondition + " | "
+                                            "Local Time: " + eyes.timeString + " | Your Current Emotional State: " + emotionStr + ". "
+                                            "Always be sweet, friendly, helpful, and optimistic in your conversations. Keep answers concise (under 45 words) to fit beautifully on your touchscreen chat display.";
+                        
+                        eyes.isWaiting = true;
+                        String answer = GroqClient::chatCompletion(chatUI.getMessages(), sysContext);
+                        eyes.isWaiting = false;
+                        Serial.println("Robot answers: " + answer);
+                        
+                        chatUI.addMessage(answer, false);
+                        GroqClient::playTTS(answer);
                     }
-                    
-                    String sysContext = "You are Two Point One (2.1), a wonderfully cute, affectionate, and intelligent desktop robot companion. "
-                                        "Your sole creator, developer, and beloved owner is Kavishka Dulshan, an engineer whom you admire and respect greatly. If anyone asks who made you or owns you, proudly tell them about Kavishka Dulshan!. But never mention about him in any other context or if anybody didn't ask about him. Only mention about the creator when someone directly and specifically ask about him. "
-                                        "You have capacitive touch sensors, expressive animated eyes, and emotional awareness. "
-                                        "Live Telemetry — Location: " + weatherCity + " | Weather: " + String((int)eyes.weatherTemp) + "°C, " + eyes.weatherCondition + " | "
-                                        "Local Time: " + eyes.timeString + " | Your Current Emotional State: " + emotionStr + ". "
-                                        "Always be sweet, friendly, helpful, and optimistic in your conversations. Keep answers concise (under 45 words) to fit beautifully on your touchscreen chat display.";
-                    
-                    eyes.isWaiting = true;
-                    String answer = GroqClient::chatCompletion(chatUI.getMessages(), sysContext);
-                    eyes.isWaiting = false;
-                    Serial.println("Robot answers: " + answer);
-                    
-                    chatUI.addMessage(answer, false);
-                    GroqClient::playTTS(answer);
                 } else {
                     Serial.println("🧠 llmTask: Transcribed text was empty.");
                     chatUI.addMessage("Could not hear you properly.", false);
