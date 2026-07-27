@@ -415,27 +415,29 @@ void GroqClient::playTTS(const String& text) {
         uint8_t* pcm_ptr = tts_audio_buffer + pcm_start;
         size_t   pcm_len = tts_audio_len - pcm_start;
 
-        // --- SOFTWARE VOLUME SCALING ---
-        uint8_t volPercent = preferences.getUInt("vol", 100);
-        float volScalar = (volPercent / 100.0f) * 4.0f; // 0x to 4x gain
-        
-        int16_t* pcm16 = (int16_t*)pcm_ptr;
-        size_t num_samples = pcm_len / 2;
-        
-        for (size_t i = 0; i < num_samples; i++) {
-            int32_t val = (int32_t)(pcm16[i] * volScalar);
-            if (val > 32767) val = 32767;
-            else if (val < -32768) val = -32768;
-            pcm16[i] = (int16_t)val;
-        }
-
         // Stream in 2048-byte chunks to avoid I2S write latency spikes
         const size_t CHUNK = 2048;
         size_t offset = 0;
+        int16_t local_pcm[1024]; // 2048 bytes = 1024 int16 samples
+        
         while (offset < pcm_len) {
             size_t write_len = min(CHUNK, pcm_len - offset);
+            size_t num_samples = write_len / 2;
+            
+            // Read volume in real-time
+            uint8_t volPercent = preferences.getUInt("vol", 100);
+            float volScalar = (volPercent / 100.0f) * 4.0f;
+            
+            int16_t* src_pcm = (int16_t*)(pcm_ptr + offset);
+            for (size_t i = 0; i < num_samples; i++) {
+                int32_t val = (int32_t)(src_pcm[i] * volScalar);
+                if (val > 32767) val = 32767;
+                else if (val < -32768) val = -32768;
+                local_pcm[i] = (int16_t)val;
+            }
+            
             size_t bytes_written = 0;
-            i2s_write(I2S_NUM_1, pcm_ptr + offset, write_len, &bytes_written, portMAX_DELAY);
+            i2s_write(I2S_NUM_1, (uint8_t*)local_pcm, write_len, &bytes_written, portMAX_DELAY);
             offset += write_len;
         }
 
