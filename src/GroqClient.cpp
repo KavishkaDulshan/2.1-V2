@@ -7,6 +7,8 @@
 
 extern Preferences preferences;
 
+volatile bool GroqClient::is_tts_playing = false;
+
 void GroqClient::init() {
     // No specific initialization required right now
 }
@@ -269,33 +271,69 @@ String GroqClient::chatCompletion(const std::vector<ChatMessage>& history, const
 // =========================================================================
 
 void GroqClient::initSpeakerI2S() {
-    if (tts_i2s_ready) return;
+    static bool speaker_initialized = false;
+    if (speaker_initialized) return;
 
-    i2s_config_t i2s_cfg = {
-        .mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
-        .sample_rate          = 24000,
-        .bits_per_sample      = I2S_BITS_PER_SAMPLE_16BIT,
-        .channel_format       = I2S_CHANNEL_FMT_ONLY_LEFT,
+    i2s_config_t i2s_config = {
+        .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX),
+        .sample_rate = 24000,
+        .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
+        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
         .communication_format = I2S_COMM_FORMAT_STAND_I2S,
-        .intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1,
-        .dma_buf_count        = 8,
-        .dma_buf_len          = 1024,
-        .use_apll             = false,
-        .tx_desc_auto_clear   = true,
+        .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
+        .dma_buf_count = 8,
+        .dma_buf_len = 256,
+        .use_apll = false,
+        .tx_desc_auto_clear = true,
+        .fixed_mclk = 0,
+        .mclk_multiple = I2S_MCLK_MULTIPLE_256,
+        .bits_per_chan = I2S_BITS_PER_CHAN_DEFAULT
     };
-    i2s_driver_install(I2S_NUM_1, &i2s_cfg, 0, NULL);
-
-    i2s_pin_config_t pin_cfg = {
-        .bck_io_num   = 40,   // BCLK
-        .ws_io_num    = 41,   // LRC
-        .data_out_num = 42,   // DIN
-        .data_in_num  = I2S_PIN_NO_CHANGE,
+    
+    i2s_pin_config_t pin_config = {
+        .mck_io_num = I2S_PIN_NO_CHANGE,
+        .bck_io_num = 40,
+        .ws_io_num = 41,
+        .data_out_num = 42,
+        .data_in_num = I2S_PIN_NO_CHANGE
     };
-    i2s_set_pin(I2S_NUM_1, &pin_cfg);
-    i2s_zero_dma_buffer(I2S_NUM_1);
 
-    Serial.println("TTS: I2S_NUM_1 speaker initialized (GPIO 40/41/42).");
+    i2s_driver_install(I2S_NUM_1, &i2s_config, 0, NULL);
+    i2s_set_pin(I2S_NUM_1, &pin_config);
+    speaker_initialized = true;
     tts_i2s_ready = true;
+}
+
+void GroqClient::playTestBeep() {
+    if (is_tts_playing) return;
+    is_tts_playing = true;
+    initSpeakerI2S();
+
+    uint8_t volPercent = preferences.getUInt("vol", 100);
+    float volScalar = (volPercent / 100.0f) * 4.0f;
+
+    int sample_rate = 24000;
+    int duration_ms = 30;
+    int num_samples = (sample_rate * duration_ms) / 1000;
+    
+    int16_t* sine_buf = (int16_t*)malloc(num_samples * sizeof(int16_t));
+    if (sine_buf) {
+        for (int i = 0; i < num_samples; i++) {
+            float t = (float)i / sample_rate;
+            int16_t val = (int16_t)(sin(2 * PI * 1000 * t) * 8000); 
+            
+            int32_t scaled = (int32_t)(val * volScalar);
+            if (scaled > 32767) scaled = 32767;
+            else if (scaled < -32768) scaled = -32768;
+            
+            sine_buf[i] = (int16_t)scaled;
+        }
+        
+        size_t bytes_written = 0;
+        i2s_write(I2S_NUM_1, (uint8_t*)sine_buf, num_samples * sizeof(int16_t), &bytes_written, portMAX_DELAY);
+        free(sine_buf);
+    }
+    is_tts_playing = false;
 }
 
 void GroqClient::playTTS(const String& text) {
@@ -373,6 +411,7 @@ void GroqClient::playTTS(const String& text) {
 
         Serial.printf("TTS: PCM data starts at byte %u. Playing...\n", pcm_start);
 
+        is_tts_playing = true;
         uint8_t* pcm_ptr = tts_audio_buffer + pcm_start;
         size_t   pcm_len = tts_audio_len - pcm_start;
 
@@ -402,6 +441,7 @@ void GroqClient::playTTS(const String& text) {
 
         // Drain DMA buffers cleanly
         i2s_zero_dma_buffer(I2S_NUM_1);
+        is_tts_playing = false;
         Serial.println("TTS: Playback complete.");
     } else {
         Serial.printf("TTS: ERROR — esp_err=%s, HTTP=%d, bytes=%u\n",

@@ -1162,6 +1162,7 @@ void loop() {
       
       if (uiUpdated && dashboardUI.getVolume() != oldVol) {
           preferences.putUInt("vol", dashboardUI.getVolume());
+          GroqClient::playTestBeep();
       }
       
       dashboardUI.draw();

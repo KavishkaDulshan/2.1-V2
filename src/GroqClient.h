@@ -17,6 +17,11 @@ public:
     // Convert text to speech using Groq Orpheus and play via MAX98357 on I2S_NUM_1
     static void playTTS(const String& text);
 
+    // Play a very short 30ms test tone to preview the volume immediately without blocking
+    static void playTestBeep();
+
+    static volatile bool is_tts_playing;
+
 private:
     static void generateWavHeader(uint8_t* header, uint32_t sampleRate, uint16_t bitsPerSample, uint16_t channels, uint32_t dataSize);
     static void initSpeakerI2S();
