@@ -580,6 +580,7 @@ void setup() {
   chatUI.init(&display);
   clockUI.init(&display);
   dashboardUI.init(&display);
+  dashboardUI.setVolume(preferences.getUInt("vol", 100)); // Load saved volume, default max
   settingsUI.init(&display, &preferences);
   eyes.enableStatusBar = preferences.getBool("sb_en", false);
   eyes.sbShowWifi      = preferences.getBool("sb_wifi", false);
@@ -1156,7 +1157,13 @@ void loop() {
       dashboardUI.setApiStatus(preferences.getString("groq_key", "").length() > 0);
       
       // Update and Draw Dashboard
-      dashboardUI.update(isScreenTouched, tx, ty);
+      uint8_t oldVol = dashboardUI.getVolume();
+      bool uiUpdated = dashboardUI.update(isScreenTouched, tx, ty);
+      
+      if (uiUpdated && dashboardUI.getVolume() != oldVol) {
+          preferences.putUInt("vol", dashboardUI.getVolume());
+      }
+      
       dashboardUI.draw();
       
       if (dashboardUI.wantsToClose()) {
