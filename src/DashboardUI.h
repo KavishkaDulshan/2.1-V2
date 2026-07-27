@@ -18,8 +18,8 @@ public:
     // Draw the dashboard to the screen
     void draw();
     
-    // Reset state when opening
-    void reset();
+    // Reset state when opening, seed with current touch state to prevent accidental immediate clicks
+    void reset(bool isTouched, int16_t touchX, int16_t touchY);
     
     // Check if the user wants to close the dashboard
     bool wantsToClose() const { return _wantsToClose; }

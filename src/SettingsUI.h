@@ -20,7 +20,7 @@ public:
     void init(lgfx::LGFX_Device* display, Preferences* prefs);
     bool update(bool isTouched, int16_t touchX, int16_t touchY);
     void draw();
-    void reset();
+    void reset(bool isTouched, int16_t touchX, int16_t touchY);
     
     bool wantsToClose() const { return _wantsToClose; }
 

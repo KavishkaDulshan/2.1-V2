@@ -54,10 +54,12 @@ void SettingsUI::init(lgfx::LGFX_Device* display, Preferences* prefs) {
     }
 }
 
-void SettingsUI::reset() {
+void SettingsUI::reset(bool isTouched, int16_t touchX, int16_t touchY) {
     _wantsToClose = false;
     _needsRedraw = true;
-    _wasTouched = false;
+    _wasTouched = isTouched;
+    _lastTouchX = touchX;
+    _lastTouchY = touchY;
     _currentMenu = LEVEL_GRID;
     _drumScrollY = 0;
     _drumVelocity = 0;

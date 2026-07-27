@@ -1112,12 +1112,12 @@ void loop() {
       if (swipeStartX < 30 && (tx - swipeStartX > 60)) {
           isDashboardActive = true;
           isSettingsActive = false;
-          dashboardUI.reset();
+          dashboardUI.reset(isScreenTouched, tx, ty);
           swipeStartX = -1;
       } else if (swipeStartX > 210 && (swipeStartX - tx > 60)) {
           isSettingsActive = true;
           isDashboardActive = false;
-          settingsUI.reset();
+          settingsUI.reset(isScreenTouched, tx, ty);
           swipeStartX = -1;
       }
   } else if (!isScreenTouched) {

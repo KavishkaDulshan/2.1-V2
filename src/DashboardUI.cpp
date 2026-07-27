@@ -37,10 +37,12 @@ void DashboardUI::init(lgfx::LGFX_Device* display) {
     _sprite->setTextDatum(middle_center);
 }
 
-void DashboardUI::reset() {
+void DashboardUI::reset(bool isTouched, int16_t touchX, int16_t touchY) {
     _wantsToClose = false;
     _needsRedraw = true;
-    _wasTouched = false;
+    _wasTouched = isTouched;
+    _lastTouchX = touchX;
+    _lastTouchY = touchY;
     _isDraggingBrightness = false;
     _isDraggingVolume = false;
 }
