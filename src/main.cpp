@@ -352,7 +352,13 @@ void llmTask(void *pvParameters) {
                 eyes.isThinking = false;
                 
                 if (transcribedText.length() > 0) {
-                    if (transcribedText == "[NON_ENGLISH]") {
+                    if (transcribedText == "[RATE_LIMITED]") {
+                        String errMsg = "Oops! I am a bit too popular right now. Give me a moment!";
+                        Serial.println("[llmTask] STT rate limited.");
+                        eyes.setEmotion(SAD);
+                        chatUI.addMessage(errMsg, false);
+                        GroqClient::playTTS(errMsg);
+                    } else if (transcribedText == "[NON_ENGLISH]") {
                         String errMsg = "I'm sorry, but I can only understand English for now.";
                         Serial.println("Robot answers: " + errMsg);
                         chatUI.addMessage(errMsg, false);
@@ -372,6 +378,9 @@ void llmTask(void *pvParameters) {
                             case INNOCENT: emotionStr = "Innocent and Playful"; break;
                             case CLOCK_MODE: emotionStr = "Displaying Clock Dashboard"; break;
                             case WAKEUP: emotionStr = "Just Woke Up"; break;
+                            case LOVE: emotionStr = "Loving / Affectionate"; break;
+                            case EXCITED: emotionStr = "Excited / Starry-eyed"; break;
+                            case CONFUSED: emotionStr = "Confused / Thinking"; break;
                             default: emotionStr = "Neutral"; break;
                         }
                         
@@ -383,26 +392,40 @@ void llmTask(void *pvParameters) {
                                             "1. If asked about your nature, playfully acknowledge you have a tiny silicon brain powered by AI. "
                                             "2. If asked to do complex tasks (e.g., write essays, code, math), playfully refuse by saying your brain isn't big enough for that. "
                                             "3. If the user is sad or upset, be highly empathetic and comforting. "
-                                            "4. DO NOT use emojis or action text (like *blinks*), as your physical screen eyes already handle expressions. "
-                                            "5. ALWAYS keep answers natural, conversational, and strictly UNDER 45 WORDS to fit your screen.";
+                                            "4. DO NOT use emojis or action text (like *blinks*). "
+                                            "5. ALWAYS keep answers natural, conversational, and strictly UNDER 45 WORDS to fit your screen. "
+                                            "6. VERY IMPORTANT: You MUST start EVERY single response with exactly one of the following emotion tags in brackets to control your physical face: "
+                                            "[NEUTRAL], [HAPPY], [ANGRY], [SAD], [SLEEPY], [INNOCENT], [DIZZY], [PANIC], [LOVE], [EXCITED], [CONFUSED]. "
+                                            "Example: '[HAPPY] I am so glad to see you!'";
                         
                         eyes.isWaiting = true;
                         String answer = GroqClient::chatCompletion(chatUI.getMessages(), sysContext);
                         eyes.isWaiting = false;
                         Serial.println("Robot answers: " + answer);
                         
-                        // The text was already streamed to chatUI inside chatCompletion. 
-                        // Do not call addMessage again here.
-                        
-                        GroqClient::playTTS(answer);
+                        if (answer == "[RATE_LIMITED]") {
+                            String errMsg = "My brain is overloaded right now, please try again in a moment!";
+                            eyes.setEmotion(SAD);
+                            chatUI.updateLastMessage(errMsg); // Replace the empty placeholder
+                            GroqClient::playTTS(errMsg);
+                        } else if (answer == "[API_ERROR]" || answer.length() == 0) {
+                            String errMsg = "Something went wrong on my end. Sorry!";
+                            eyes.setEmotion(SAD);
+                            chatUI.updateLastMessage(errMsg);
+                            GroqClient::playTTS(errMsg);
+                        } else {
+                            // The text was already streamed to chatUI inside chatCompletion.
+                            // Do not call addMessage again here.
+                            GroqClient::playTTS(answer);
+                        }
                     }
                 } else {
-                    Serial.println("🧠 llmTask: Transcribed text was empty.");
-                    chatUI.addMessage("Could not hear you properly.", false);
+                    Serial.println("🧠 llmTask: Transcribed text was empty (likely silence).");
+                    chatUI.addMessage("I could not hear anything.", false);
                 }
                 } // End of apiKey else block
             } else {
-                Serial.println("🧠 llmTask: Record index was 0, ignoring!");
+                Serial.println("🧠 llmTask: WARNING — process_pending fired but llm_record_index=0! Possible race condition.");
             }
             llm_record_index = 0;
             // Restore emotion state after bubble goes away
@@ -639,7 +662,7 @@ void setup() {
   xTaskCreatePinnedToCore(weatherTask, "WeatherTask", 8192, NULL, 1, &weatherTaskHandle, 1);
   
   // Start LLM Task with higher priority to prevent starvation from loop()
-  xTaskCreatePinnedToCore(llmTask, "LLMTask", 16384, NULL, 2, NULL, 1);
+  xTaskCreatePinnedToCore(llmTask, "LLMTask", 28672, NULL, 2, NULL, 1);
   
   lastInteractionTime = millis();
 }

@@ -16,6 +16,7 @@ public:
     void init(lgfx::LGFX_Device* display);
     void addMessage(String text, bool isUser);
     void appendLastMessage(String text);
+    void updateLastMessage(String text);  // Replace last robot message text entirely
     
     // Call every frame in loop()
     void update(bool isTouched, int touchY); 

@@ -19,7 +19,10 @@ enum Emotion
   WARNING_ANIM,
   CLOCK_MODE,
   ALARM_RINGING,
-  NOTIFICATION
+  NOTIFICATION,
+  LOVE,
+  EXCITED,
+  CONFUSED
 };
 
 class RobotEyes
@@ -138,6 +141,25 @@ private:
   float sadTearW = 0, sadTearH = 0;
   unsigned long sadTearTimer = 0;
   float sadLidAngle = 0.0f; // droopy top lid
+
+  // --- NEW: LOVE (Heart Eyes) ---
+  float loveHeartPulse = 0.0f;
+  float loveMorphScale = 0.0f; // 0 = normal eye, 1 = full heart
+
+  // --- NEW: EXCITED (Starry-Eyed) ---
+  float excitedEyeWidthPulse = 0.0f;
+  static const int MAX_EXCITED_STARS = 6;
+  struct ExcitedStar {
+    float x, y, vy, alpha;
+    bool active;
+  } excitedStars[MAX_EXCITED_STARS];
+  unsigned long excitedStarTimer = 0;
+
+  // --- NEW: CONFUSED (Side glance & Question Mark) ---
+  float confusedGlanceX = 0.0f;
+  float confusedQuestionMarkY = 0.0f;
+  float confusedQuestionMarkAlpha = 0.0f;
+  bool confusedQuestionMarkActive = false;
 
   // --- NEW: ANGRY TWITCH & PARTICLES ---
   float angryTwitchAngle = 0.0f;

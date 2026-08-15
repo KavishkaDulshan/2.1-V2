@@ -5,9 +5,11 @@
 #include <Preferences.h>
 #include <driver/i2s.h>
 #include "ChatUI.h"
+#include "RobotEyes.h"
 
 extern Preferences preferences;
 extern ChatUI chatUI;
+extern RobotEyes eyes;
 
 volatile bool GroqClient::is_tts_playing = false;
 
@@ -178,6 +180,8 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
 
 static String llm_complete_response = "";
 static String sse_buffer = "";
+static bool is_parsing_tag = false;
+static String tag_buffer = "";
 
 esp_err_t _llm_stream_event_handler(esp_http_client_event_t *evt) {
     switch(evt->event_id) {
@@ -206,8 +210,48 @@ esp_err_t _llm_stream_event_handler(esp_http_client_event_t *evt) {
                         if (!err) {
                             if (doc["choices"][0]["delta"].containsKey("content")) {
                                 String content = doc["choices"][0]["delta"]["content"].as<String>();
-                                chatUI.appendLastMessage(content);
-                                llm_complete_response += content;
+                                
+                                if (is_parsing_tag) {
+                                    for (size_t c = 0; c < content.length(); c++) {
+                                        if (tag_buffer.length() == 0 && content[c] != '[') {
+                                            // Doesn't start with [, abort parsing and dump
+                                            is_parsing_tag = false;
+                                            chatUI.appendLastMessage(content.substring(c));
+                                            llm_complete_response += content.substring(c);
+                                            break;
+                                        }
+                                        tag_buffer += content[c];
+                                        if (content[c] == ']') {
+                                            is_parsing_tag = false;
+                                            // Parse emotion
+                                            String emStr = tag_buffer.substring(1, tag_buffer.length() - 1);
+                                            emStr.toUpperCase();
+                                            if (emStr == "HAPPY") eyes.setEmotion(HAPPY);
+                                            else if (emStr == "ANGRY") eyes.setEmotion(ANGRY);
+                                            else if (emStr == "SAD") eyes.setEmotion(SAD);
+                                            else if (emStr == "SLEEPY") eyes.setEmotion(SLEEPY);
+                                            else if (emStr == "INNOCENT") eyes.setEmotion(INNOCENT);
+                                            else if (emStr == "DIZZY") eyes.setEmotion(DIZZY);
+                                            else if (emStr == "PANIC") eyes.setEmotion(PANIC);
+                                            else if (emStr == "LOVE") eyes.setEmotion(LOVE);
+                                            else if (emStr == "EXCITED") eyes.setEmotion(EXCITED);
+                                            else if (emStr == "CONFUSED") eyes.setEmotion(CONFUSED);
+                                            else if (emStr == "NEUTRAL") eyes.setEmotion(NEUTRAL);
+                                            
+                                            // Stream the rest
+                                            if (c + 1 < content.length()) {
+                                                String remainder = content.substring(c + 1);
+                                                if (remainder.startsWith(" ")) remainder = remainder.substring(1);
+                                                chatUI.appendLastMessage(remainder);
+                                                llm_complete_response += remainder;
+                                            }
+                                            break;
+                                        }
+                                    }
+                                } else {
+                                    chatUI.appendLastMessage(content);
+                                    llm_complete_response += content;
+                                }
                             }
                         }
                     }
@@ -240,8 +284,11 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
                   "Content-Disposition: form-data; name=\"model\"\r\n\r\n"
                   "whisper-large-v3\r\n"
                   "--" + boundary + "\r\n"
+                  "Content-Disposition: form-data; name=\"language\"\r\n\r\n"
+                  "en\r\n"
+                  "--" + boundary + "\r\n"
                   "Content-Disposition: form-data; name=\"response_format\"\r\n\r\n"
-                  "verbose_json\r\n"
+                  "json\r\n"
                   "--" + boundary + "--\r\n";
 
     uint32_t total_len = head.length() + sizeof(wav_header) + pcm_bytes + tail.length();
@@ -285,26 +332,35 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
     
     heap_caps_free(payload);
 
+    Serial.printf("[STT] HTTP status: %d\n", statusCode);
+
     String transcribedText = "";
     if (err == ESP_OK && statusCode == 200) {
-        Serial.println("Whisper Response: " + http_response_buffer);
-        
-        DynamicJsonDocument doc(8192); // Increased for verbose_json
-        DeserializationError error = deserializeJson(doc, http_response_buffer);
-        if (!error) {
-            String detectedLanguage = doc["language"].as<String>();
-            detectedLanguage.toLowerCase();
-            
-            if (detectedLanguage != "english" && detectedLanguage != "en") {
-                Serial.println("Whisper detected non-English language: " + detectedLanguage);
-                transcribedText = "[NON_ENGLISH]";
-            } else {
-                transcribedText = doc["text"].as<String>();
-            }
+        // Parse the compact JSON response on the HEAP to avoid stack overflow
+        DynamicJsonDocument* doc = new DynamicJsonDocument(2048);
+        if (!doc) {
+            Serial.println("[STT] ERR: heap alloc for JSON doc failed!");
+            return "";
         }
+        DeserializationError error = deserializeJson(*doc, http_response_buffer);
+        if (!error) {
+            // With format=json, Whisper returns {"text": "..."} only
+            transcribedText = (*doc)["text"].as<String>();
+            transcribedText.trim();
+            Serial.println("[STT] Transcription: '" + transcribedText + "'");
+        } else {
+            Serial.println("[STT] JSON parse error: " + String(error.c_str()));
+            Serial.println("[STT] Raw (first 200): " + http_response_buffer.substring(0, 200));
+        }
+        delete doc;
+    } else if (statusCode == 429) {
+        Serial.println("\xF0\x9F\x9A\xAB [STT] RATE LIMIT HIT (HTTP 429)!");
+        transcribedText = "[RATE_LIMITED]";
     } else {
-        Serial.printf("ERR: HTTP POST failed, esp_err: %s, code: %d\n", esp_err_to_name(err), statusCode);
-        if (http_response_buffer.length() > 0) Serial.println("Response: " + http_response_buffer);
+        Serial.printf("\xE2\x9D\x8C [STT] Request failed. esp_err=%s, HTTP=%d\n", esp_err_to_name(err), statusCode);
+        if (http_response_buffer.length() > 0) {
+            Serial.println("[STT] Error (first 200): " + http_response_buffer.substring(0, 200));
+        }
     }
 
     return transcribedText;
@@ -314,11 +370,15 @@ String GroqClient::chatCompletion(const std::vector<ChatMessage>& history, const
     if (history.empty()) return "";
 
     Serial.println("Sending conversational history to Llama 3 (esp_http_client)...");
-
-    DynamicJsonDocument doc(8192);
-    doc["model"] = "llama-3.1-8b-instant";
+    // Build JSON payload on the HEAP to avoid stack overflow from 8KB DynamicJsonDocument
+    DynamicJsonDocument* doc = new DynamicJsonDocument(8192);
+    if (!doc) {
+        Serial.println("[LLM] ERR: heap alloc for JSON doc failed!");
+        return "[API_ERROR]";
+    }
+    (*doc)["model"] = "llama-3.1-8b-instant";
     
-    JsonArray messages = doc.createNestedArray("messages");
+    JsonArray messages = doc->createNestedArray("messages");
     
     JsonObject sysMsg = messages.createNestedObject();
     sysMsg["role"] = "system";
@@ -333,13 +393,16 @@ String GroqClient::chatCompletion(const std::vector<ChatMessage>& history, const
         msg["content"] = history[i].text;
     }
 
-    doc["stream"] = true; // Enable streaming!
+    (*doc)["stream"] = true;
 
     String jsonPayload;
-    serializeJson(doc, jsonPayload);
+    serializeJson(*doc, jsonPayload);
+    delete doc; // Free heap immediately after serialization
 
     llm_complete_response = "";
     sse_buffer = "";
+    is_parsing_tag = true;
+    tag_buffer = "";
     current_api_phase = PHASE_LLM;
     
     if (persistent_client == NULL) GroqClient::init();
@@ -359,11 +422,20 @@ String GroqClient::chatCompletion(const std::vector<ChatMessage>& history, const
     esp_err_t err = esp_http_client_perform(persistent_client);
     int statusCode = esp_http_client_get_status_code(persistent_client);
     
-    String answerText = "Error";
+    Serial.printf("[LLM] HTTP status: %d\n", statusCode);
+
+    String answerText = "";
     if (err == ESP_OK && statusCode == 200) {
         answerText = llm_complete_response;
+    } else if (statusCode == 429) {
+        Serial.println("\xF0\x9F\x9A\xAB [LLM] RATE LIMIT HIT (HTTP 429)!");
+        answerText = "[RATE_LIMITED]";
     } else {
-        Serial.printf("ERR: Llama 3 POST failed, code: %d\n", statusCode);
+        Serial.printf("\xE2\x9D\x8C [LLM] Request failed. esp_err=%s, HTTP=%d\n", esp_err_to_name(err), statusCode);
+        if (http_response_buffer.length() > 0) {
+            Serial.println("[LLM] Error (first 200): " + http_response_buffer.substring(0, 200));
+        }
+        answerText = "[API_ERROR]";
     }
     
     // Clean up quotes and newlines for the display
@@ -551,14 +623,39 @@ void GroqClient::playTTS(const String& text) {
     esp_err_t err = esp_http_client_perform(persistent_client);
     int statusCode = esp_http_client_get_status_code(persistent_client);
 
-    tts_is_downloading = false; // Failsafe
+    Serial.printf("[TTS] HTTP status: %d\n", statusCode);
+
+    tts_is_downloading = false; // Signal playback task to drain and exit
+
+    if (err != ESP_OK || statusCode != 200) {
+        // Flush any partial garbage data so the playback task exits immediately.
+        // Do NOT force-clear is_tts_playing here, otherwise we free the buffer
+        // while the background task is still running!
+        if (tts_stream_mutex) {
+            xSemaphoreTake(tts_stream_mutex, portMAX_DELAY);
+            tts_stream_count = 0;
+            xSemaphoreGive(tts_stream_mutex);
+        }
+        
+        if (statusCode == 429) {
+            Serial.println("🚫 [TTS] RATE LIMIT HIT (HTTP 429)!");
+        } else {
+            Serial.printf("❌ [TTS] Request failed. esp_err=%s, HTTP=%d\n", esp_err_to_name(err), statusCode);
+        }
+    }
 
     // Block here until the playback task finishes playing the remainder of the buffer
+    unsigned long tts_timeout = millis();
     while (is_tts_playing) {
+        if (millis() - tts_timeout > 30000) {
+            Serial.println("❌ [TTS] Playback timeout! Force-releasing.");
+            is_tts_playing = false;
+            break;
+        }
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 
     heap_caps_free(tts_stream_buf);
     tts_stream_buf = nullptr;
-    Serial.println("TTS: Finished streaming entirely.");
+    Serial.println("[TTS] Finished.");
 }

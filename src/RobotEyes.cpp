@@ -46,6 +46,7 @@ void RobotEyes::init()
   for (int i = 0; i < MAX_STARS; i++) stars[i].active = false;
   for (int i = 0; i < MAX_STEAM; i++) steamPuffs[i].active = false;
   for (int i = 0; i < MAX_ZZZ; i++) zParticles[i].active = false;
+  for (int i = 0; i < MAX_EXCITED_STARS; i++) excitedStars[i].active = false;
   firework.active = false;
 }
 
@@ -73,6 +74,7 @@ void RobotEyes::setEmotion(Emotion e)
   angryTwitchOffset = 0;
   panicSweatActive = false;
   innocentFlicking = false;
+  confusedQuestionMarkActive = false;
 
   if (e == SLEEPY)
   {
@@ -109,6 +111,28 @@ void RobotEyes::setEmotion(Emotion e)
     happyEyeWidthPulse = 0;
     easeFactor = 0.2f;
     for (int i = 0; i < MAX_HEARTS; i++) hearts[i].active = false;
+  }
+  else if (e == LOVE)
+  {
+    loveHeartPulse = 0.0f;
+    loveMorphScale = 0.0f;
+    easeFactor = 0.1f;
+  }
+  else if (e == EXCITED)
+  {
+    excitedEyeWidthPulse = 0.0f;
+    for (int i = 0; i < MAX_EXCITED_STARS; i++) excitedStars[i].active = false;
+    easeFactor = 0.3f;
+  }
+  else if (e == CONFUSED)
+  {
+    confusedGlanceX = -10.0f; // Look sideways initially
+    targetX = confusedGlanceX;
+    targetY = -5.0f;
+    confusedQuestionMarkY = 0.0f;
+    confusedQuestionMarkAlpha = 0.0f;
+    confusedQuestionMarkActive = false;
+    easeFactor = 0.15f;
   }
   else if (e == SAD)
   {
@@ -473,6 +497,74 @@ void RobotEyes::update()
       if (hearts[i].active) {
         hearts[i].y += hearts[i].vy;
         if (hearts[i].y < -20) hearts[i].active = false;
+      }
+    }
+    return;
+  }
+
+  // --- LOVE ---
+  if (currentEmotion == LOVE)
+  {
+    loveHeartPulse += 0.15f;
+    targetY = sin(loveHeartPulse * 0.5f) * 2.0f; // Gentle float
+    if (loveMorphScale < 1.0f) {
+      loveMorphScale += 0.05f;
+      if (loveMorphScale > 1.0f) loveMorphScale = 1.0f;
+    }
+    return;
+  }
+
+  // --- EXCITED ---
+  if (currentEmotion == EXCITED)
+  {
+    excitedEyeWidthPulse = sin(millis() * 0.015f) * 3.0f;
+    targetY = -3.0f + sin(millis() * 0.01f) * 2.0f; // Jittery up
+
+    // Update Stars
+    if (now > excitedStarTimer) {
+      for (int i = 0; i < MAX_EXCITED_STARS; i++) {
+        if (!excitedStars[i].active) {
+          excitedStars[i].active = true;
+          excitedStars[i].x = random(20, 220);
+          excitedStars[i].y = random(30, 90);
+          excitedStars[i].vy = -((float)random(5, 15) / 10.0f);
+          excitedStars[i].alpha = 0.0f;
+          break;
+        }
+      }
+      excitedStarTimer = now + random(100, 400);
+    }
+    for (int i = 0; i < MAX_EXCITED_STARS; i++) {
+      if (excitedStars[i].active) {
+        excitedStars[i].y += excitedStars[i].vy;
+        excitedStars[i].alpha += 0.1f;
+        if (excitedStars[i].alpha > 1.0f) excitedStars[i].alpha = 1.0f;
+        if (excitedStars[i].y < -10) excitedStars[i].active = false;
+      }
+    }
+    return;
+  }
+
+  // --- CONFUSED ---
+  if (currentEmotion == CONFUSED)
+  {
+    targetX = confusedGlanceX;
+    targetY = -6.0f;
+
+    static unsigned long confusedTimer = 0;
+    if (!confusedQuestionMarkActive && now > confusedTimer + 1000) {
+      confusedQuestionMarkActive = true;
+      confusedQuestionMarkY = 20.0f;
+      confusedQuestionMarkAlpha = 0.0f;
+    }
+
+    if (confusedQuestionMarkActive) {
+      confusedQuestionMarkY -= 0.5f;
+      if (confusedQuestionMarkAlpha < 1.0f) confusedQuestionMarkAlpha += 0.05f;
+      if (confusedQuestionMarkAlpha > 1.0f) confusedQuestionMarkAlpha = 1.0f;
+      if (confusedQuestionMarkY < -20.0f) {
+        confusedQuestionMarkActive = false;
+        confusedTimer = now;
       }
     }
     return;
@@ -925,6 +1017,27 @@ void RobotEyes::draw(LGFX_Sprite *spr)
         spr->fillTriangle(hX - s, hY, hX + s, hY, hX, hY + s + 1, pinkColor);
       }
     }
+  }
+
+  // Background particles for EXCITED (Stars)
+  if (currentEmotion == EXCITED) {
+    uint16_t yellowColor = 0xFFE0; // TFT_YELLOW
+    for (int i = 0; i < MAX_EXCITED_STARS; i++) {
+      if (excitedStars[i].active) {
+        int sX = (int)excitedStars[i].x;
+        int sY = (int)excitedStars[i].y;
+        drawRealStar(spr, sX, sY, 5, yellowColor);
+      }
+    }
+  }
+
+  // Question mark for CONFUSED
+  if (currentEmotion == CONFUSED && confusedQuestionMarkActive) {
+    spr->setTextFont(4);
+    spr->setTextSize(1);
+    spr->setTextColor(TFT_WHITE);
+    spr->setTextDatum(textdatum_t::bottom_center);
+    spr->drawString("?", centerX, centerY + (int)confusedQuestionMarkY - 30);
   }
 
   // Background particles for DIZZY (Spirals & Stars)
@@ -1393,6 +1506,90 @@ void RobotEyes::drawEye(LGFX_Sprite *spr, int x, int y, int side, int wOverride,
       uint16_t pinkColor = 0xFDDF; // Lighter Pink (to contrast with hearts)
       for (int i = 0; i < 3; i++) {
         spr->fillCircle(chBaseX + side * i * 6, chY, 3, pinkColor);
+      }
+    }
+    return;
+  }
+
+  // LOVE
+  if (currentEmotion == LOVE)
+  {
+    if (loveMorphScale > 0.5f) {
+      int hs = 30 + (int)(sin(loveHeartPulse * 2.0f) * 3.0f); // heart size
+      uint16_t pColor = scleraColor; 
+      
+      // Draw white heart (Sclera)
+      spr->fillCircle(x - hs/2, y - hs/4, hs/2, pColor);
+      spr->fillCircle(x + hs/2, y - hs/4, hs/2, pColor);
+      spr->fillTriangle(x - hs, y - hs/4, x + hs, y - hs/4, x, y + hs, pColor);
+      
+      // Draw black heart (Pupil)
+      int phs = 14;
+      int pX = x + (int)curX;
+      int pY = y + (int)curY - 4;
+      spr->fillCircle(pX - phs/2, pY - phs/4, phs/2, TFT_BLACK);
+      spr->fillCircle(pX + phs/2, pY - phs/4, phs/2, TFT_BLACK);
+      spr->fillTriangle(pX - phs, pY - phs/4, pX + phs, pY - phs/4, pX, pY + phs, TFT_BLACK);
+      
+      // Highlight
+      spr->fillCircle(pX - phs/4, pY - phs/4 - 2, 3, TFT_WHITE);
+    } else {
+      spr->fillRoundRect(x - eW / 2, y - eH / 2, eW, eH, eyeR, scleraColor);
+      int pX = x + (int)curX;
+      int pY = constrain(y + (int)curY, y - eH / 2 + pupilR + 2, y + eH / 2 - pupilR - 2);
+      spr->fillCircle(pX, pY, pupilR, TFT_BLACK);
+      spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
+    }
+    return;
+  }
+
+  // EXCITED
+  if (currentEmotion == EXCITED)
+  {
+    float effectiveBlink = localBlink;
+    int h = max(2, (int)(eH * (1.0f - effectiveBlink)));
+    
+    int excW = eW + (int)excitedEyeWidthPulse;
+    int excH = h + (int)excitedEyeWidthPulse;
+    spr->fillRoundRect(x - excW / 2, y - excH / 2, excW, excH, eyeR, scleraColor);
+    
+    if (excH > 8) {
+      int pX = x + (int)curX;
+      int pY = constrain(y + (int)curY, y - excH / 2 + pupilR + 2, y + excH / 2 - pupilR - 2);
+      
+      int pR = pupilR + 4; 
+      spr->fillCircle(pX, pY, pR, TFT_BLACK);
+      
+      // Starry highlights
+      drawRealStar(spr, pX - 6, pY - 6, 6, TFT_WHITE);
+      drawRealStar(spr, pX + 8, pY + 8, 4, TFT_WHITE);
+    }
+    return;
+  }
+
+  // CONFUSED
+  if (currentEmotion == CONFUSED)
+  {
+    float effectiveBlink = localBlink;
+    int h = max(2, (int)(eH * (1.0f - effectiveBlink)));
+    
+    spr->fillRoundRect(x - eW / 2, y - h / 2, eW, h, eyeR, scleraColor);
+    
+    if (h > 8) {
+      int pX = x + (int)curX;
+      int pY = constrain(y + (int)curY, y - h / 2 + pupilR + 2, y + h / 2 - pupilR - 2);
+      spr->fillCircle(pX, pY, pupilR, TFT_BLACK);
+      spr->fillCircle(pX + 3, pY - 3, 2, TFT_WHITE);
+      
+      // Clip the top with an angled black rectangle for a confused squint
+      if (side == -1) {
+         spr->fillTriangle(x - eW/2 - 5, y - h/2 - 5, 
+                           x + eW/2 + 5, y - h/2 - 5, 
+                           x + eW/2 + 5, y - h/2 + 10, TFT_BLACK);
+      } else {
+         spr->fillTriangle(x - eW/2 - 5, y - h/2 - 5, 
+                           x + eW/2 + 5, y - h/2 - 5, 
+                           x - eW/2 - 5, y - h/2 + 10, TFT_BLACK);
       }
     }
     return;
