@@ -4,13 +4,45 @@
 #include "esp_crt_bundle.h"
 #include <Preferences.h>
 #include <driver/i2s.h>
+#include "ChatUI.h"
 
 extern Preferences preferences;
+extern ChatUI chatUI;
 
 volatile bool GroqClient::is_tts_playing = false;
 
+enum ApiPhase {
+    PHASE_NONE,
+    PHASE_STT,
+    PHASE_LLM,
+    PHASE_TTS
+};
+static ApiPhase current_api_phase = PHASE_NONE;
+static esp_http_client_handle_t persistent_client = NULL;
+
+esp_err_t _http_event_handler(esp_http_client_event_t *evt);
+esp_err_t _llm_stream_event_handler(esp_http_client_event_t *evt);
+esp_err_t _tts_event_handler(esp_http_client_event_t *evt);
+
+esp_err_t _unified_event_handler(esp_http_client_event_t *evt) {
+    if (current_api_phase == PHASE_STT) return _http_event_handler(evt);
+    if (current_api_phase == PHASE_LLM) return _llm_stream_event_handler(evt);
+    if (current_api_phase == PHASE_TTS) return _tts_event_handler(evt);
+    return ESP_OK;
+}
+
 void GroqClient::init() {
-    // No specific initialization required right now
+    if (persistent_client == NULL) {
+        esp_http_client_config_t config = {
+            .url = "https://api.groq.com",
+            .cert_pem = NULL,
+            .timeout_ms = 30000,
+            .event_handler = _unified_event_handler,
+            .crt_bundle_attach = esp_crt_bundle_attach,
+            .keep_alive_enable = true
+        };
+        persistent_client = esp_http_client_init(&config);
+    }
 }
 
 void GroqClient::generateWavHeader(uint8_t* header, uint32_t sampleRate, uint16_t bitsPerSample, uint16_t channels, uint32_t dataSize) {
@@ -57,23 +89,66 @@ void GroqClient::generateWavHeader(uint8_t* header, uint32_t sampleRate, uint16_
 static String http_response_buffer = "";
 
 // --- TTS Binary Audio Buffer ---
-#define TTS_BUFFER_MAX (1500 * 1024) // 1.5MB max WAV response in PSRAM
-static uint8_t* tts_audio_buffer = nullptr;
-static size_t   tts_audio_len    = 0;
-static bool     tts_i2s_ready    = false;
+#define TTS_STREAM_BUF_SIZE (256 * 1024) // 256KB streaming buffer in PSRAM
+static uint8_t* tts_stream_buf = nullptr;
+static volatile size_t tts_stream_write_ptr = 0;
+static volatile size_t tts_stream_read_ptr = 0;
+static volatile size_t tts_stream_count = 0;
+static SemaphoreHandle_t tts_stream_mutex = NULL;
+static volatile bool tts_is_downloading = false;
+static volatile size_t tts_bytes_received = 0;
+
+static bool tts_i2s_ready = false;
 
 // Event handler for binary TTS WAV response
 esp_err_t _tts_event_handler(esp_http_client_event_t *evt) {
     switch (evt->event_id) {
         case HTTP_EVENT_ON_DATA:
-            if (evt->data_len > 0 && tts_audio_buffer != nullptr) {
-                if ((tts_audio_len + (size_t)evt->data_len) < TTS_BUFFER_MAX) {
-                    memcpy(tts_audio_buffer + tts_audio_len, evt->data, evt->data_len);
-                    tts_audio_len += evt->data_len;
-                } else {
-                    Serial.println("TTS: WARNING — buffer full, truncating!");
+            if (evt->data_len > 0 && tts_stream_buf != nullptr) {
+                uint8_t* data = (uint8_t*)evt->data;
+                size_t len = evt->data_len;
+                
+                // Skip standard WAV header (44 bytes)
+                if (tts_bytes_received < 44) {
+                    size_t header_bytes = 44 - tts_bytes_received;
+                    if (len <= header_bytes) {
+                        tts_bytes_received += len;
+                        break; 
+                    } else {
+                        data += header_bytes;
+                        len -= header_bytes;
+                        tts_bytes_received += header_bytes;
+                    }
+                }
+                
+                tts_bytes_received += len;
+
+                if (tts_stream_mutex) {
+                    while (len > 0) {
+                        xSemaphoreTake(tts_stream_mutex, portMAX_DELAY);
+                        size_t available_space = TTS_STREAM_BUF_SIZE - tts_stream_count;
+                        if (available_space > 0) {
+                            size_t write_len = min(len, available_space);
+                            for (size_t i = 0; i < write_len; i++) {
+                                tts_stream_buf[tts_stream_write_ptr] = data[i];
+                                tts_stream_write_ptr = (tts_stream_write_ptr + 1) % TTS_STREAM_BUF_SIZE;
+                            }
+                            tts_stream_count += write_len;
+                            len -= write_len;
+                            data += write_len;
+                        }
+                        xSemaphoreGive(tts_stream_mutex);
+                        
+                        if (len > 0) {
+                            vTaskDelay(pdMS_TO_TICKS(5)); // Backpressure: wait for playback task to consume
+                        }
+                    }
                 }
             }
+            break;
+        case HTTP_EVENT_ON_FINISH:
+        case HTTP_EVENT_DISCONNECTED:
+            tts_is_downloading = false;
             break;
         default:
             break;
@@ -92,6 +167,50 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt) {
                     temp[evt->data_len] = '\0';
                     http_response_buffer += temp;
                     free(temp);
+                }
+            }
+            break;
+        default:
+            break;
+    }
+    return ESP_OK;
+}
+
+static String llm_complete_response = "";
+static String sse_buffer = "";
+
+esp_err_t _llm_stream_event_handler(esp_http_client_event_t *evt) {
+    switch(evt->event_id) {
+        case HTTP_EVENT_ON_DATA:
+            if (evt->data_len > 0) {
+                char* temp = (char*)malloc(evt->data_len + 1);
+                if (temp) {
+                    memcpy(temp, evt->data, evt->data_len);
+                    temp[evt->data_len] = '\0';
+                    sse_buffer += temp;
+                    free(temp);
+                }
+                
+                int newline_idx;
+                while ((newline_idx = sse_buffer.indexOf('\n')) >= 0) {
+                    String line = sse_buffer.substring(0, newline_idx);
+                    sse_buffer = sse_buffer.substring(newline_idx + 1);
+                    
+                    line.trim();
+                    if (line.startsWith("data: ")) {
+                        String jsonStr = line.substring(6);
+                        if (jsonStr == "[DONE]") continue;
+                        
+                        DynamicJsonDocument doc(1024);
+                        DeserializationError err = deserializeJson(doc, jsonStr);
+                        if (!err) {
+                            if (doc["choices"][0]["delta"].containsKey("content")) {
+                                String content = doc["choices"][0]["delta"]["content"].as<String>();
+                                chatUI.appendLastMessage(content);
+                                llm_complete_response += content;
+                            }
+                        }
+                    }
                 }
             }
             break;
@@ -148,28 +267,22 @@ String GroqClient::transcribeAudio(int16_t* pcm_data, size_t num_samples) {
     offset += tail.length();
 
     http_response_buffer = "";
+    current_api_phase = PHASE_STT;
     
-    esp_http_client_config_t config = {
-        .url = "https://api.groq.com/openai/v1/audio/transcriptions",
-        .cert_pem = NULL,
-        .timeout_ms = 10000,
-        .event_handler = _http_event_handler,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
+    if (persistent_client == NULL) GroqClient::init();
     
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_url(persistent_client, "https://api.groq.com/openai/v1/audio/transcriptions");
+    esp_http_client_set_method(persistent_client, HTTP_METHOD_POST);
     
     String apiKey = preferences.getString("groq_key", "");
     String authHeader = String("Bearer ") + apiKey;
-    esp_http_client_set_header(client, "Authorization", authHeader.c_str());
-    esp_http_client_set_header(client, "Content-Type", contentType.c_str());
-    esp_http_client_set_post_field(client, (const char*)payload, total_len);
+    esp_http_client_set_header(persistent_client, "Authorization", authHeader.c_str());
+    esp_http_client_set_header(persistent_client, "Content-Type", contentType.c_str());
+    esp_http_client_set_post_field(persistent_client, (const char*)payload, total_len);
     
-    esp_err_t err = esp_http_client_perform(client);
-    int statusCode = esp_http_client_get_status_code(client);
+    esp_err_t err = esp_http_client_perform(persistent_client);
+    int statusCode = esp_http_client_get_status_code(persistent_client);
     
-    esp_http_client_cleanup(client);
     heap_caps_free(payload);
 
     String transcribedText = "";
@@ -220,43 +333,37 @@ String GroqClient::chatCompletion(const std::vector<ChatMessage>& history, const
         msg["content"] = history[i].text;
     }
 
+    doc["stream"] = true; // Enable streaming!
+
     String jsonPayload;
     serializeJson(doc, jsonPayload);
 
-    http_response_buffer = "";
-
-    esp_http_client_config_t config = {
-        .url = "https://api.groq.com/openai/v1/chat/completions",
-        .cert_pem = NULL,
-        .timeout_ms = 10000,
-        .event_handler = _http_event_handler,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
+    llm_complete_response = "";
+    sse_buffer = "";
+    current_api_phase = PHASE_LLM;
     
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    if (persistent_client == NULL) GroqClient::init();
+    
+    // Seed the UI with an empty robot message that we will append to
+    chatUI.addMessage("", false);
+
+    esp_http_client_set_url(persistent_client, "https://api.groq.com/openai/v1/chat/completions");
+    esp_http_client_set_method(persistent_client, HTTP_METHOD_POST);
     
     String apiKey = preferences.getString("groq_key", "");
     String authHeader = String("Bearer ") + apiKey;
-    esp_http_client_set_header(client, "Authorization", authHeader.c_str());
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_post_field(client, jsonPayload.c_str(), jsonPayload.length());
+    esp_http_client_set_header(persistent_client, "Authorization", authHeader.c_str());
+    esp_http_client_set_header(persistent_client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(persistent_client, jsonPayload.c_str(), jsonPayload.length());
     
-    esp_err_t err = esp_http_client_perform(client);
-    int statusCode = esp_http_client_get_status_code(client);
-    
-    esp_http_client_cleanup(client);
+    esp_err_t err = esp_http_client_perform(persistent_client);
+    int statusCode = esp_http_client_get_status_code(persistent_client);
     
     String answerText = "Error";
     if (err == ESP_OK && statusCode == 200) {
-        DynamicJsonDocument resDoc(4096);
-        DeserializationError error = deserializeJson(resDoc, http_response_buffer);
-        if (!error) {
-            answerText = resDoc["choices"][0]["message"]["content"].as<String>();
-        }
+        answerText = llm_complete_response;
     } else {
-        Serial.printf("ERR: Llama 3 POST failed, esp_err: %s, code: %d\n", esp_err_to_name(err), statusCode);
-        if (http_response_buffer.length() > 0) Serial.println("Response: " + http_response_buffer);
+        Serial.printf("ERR: Llama 3 POST failed, code: %d\n", statusCode);
     }
     
     // Clean up quotes and newlines for the display
@@ -336,13 +443,62 @@ void GroqClient::playTestBeep() {
     is_tts_playing = false;
 }
 
+void ttsPlaybackTask(void *pvParameters) {
+    uint8_t volPercent = preferences.getUInt("vol", 100);
+    float volScalar = (volPercent / 100.0f) * 4.0f;
+    
+    int16_t local_pcm[1024]; // 2048 bytes
+    size_t chunk_size_bytes = 2048;
+
+    while (tts_is_downloading || tts_stream_count > 0) {
+        bool has_data = false;
+        size_t bytes_to_read = 0;
+        
+        if (tts_stream_mutex) {
+            xSemaphoreTake(tts_stream_mutex, portMAX_DELAY);
+            if (tts_stream_count >= chunk_size_bytes || (!tts_is_downloading && tts_stream_count > 0)) {
+                bytes_to_read = min(chunk_size_bytes, (size_t)tts_stream_count);
+                bytes_to_read = bytes_to_read & ~1; // Ensure even number of bytes (complete 16-bit samples)
+                
+                if (bytes_to_read > 0) {
+                    uint8_t* dest = (uint8_t*)local_pcm;
+                    for(size_t i = 0; i < bytes_to_read; i++) {
+                        dest[i] = tts_stream_buf[tts_stream_read_ptr];
+                        tts_stream_read_ptr = (tts_stream_read_ptr + 1) % TTS_STREAM_BUF_SIZE;
+                    }
+                    tts_stream_count -= bytes_to_read;
+                    has_data = true;
+                }
+            }
+            xSemaphoreGive(tts_stream_mutex);
+        }
+        
+        if (has_data) {
+            size_t num_samples = bytes_to_read / 2;
+            for (size_t i = 0; i < num_samples; i++) {
+                int32_t val = (int32_t)(local_pcm[i] * volScalar);
+                if (val > 32767) val = 32767;
+                else if (val < -32768) val = -32768;
+                local_pcm[i] = (int16_t)val;
+            }
+            
+            size_t bytes_written = 0;
+            i2s_write(I2S_NUM_1, (uint8_t*)local_pcm, bytes_to_read, &bytes_written, portMAX_DELAY);
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+    
+    i2s_zero_dma_buffer(I2S_NUM_1);
+    GroqClient::is_tts_playing = false;
+    vTaskDelete(NULL);
+}
+
 void GroqClient::playTTS(const String& text) {
     if (text.length() == 0) return;
 
-    // --- Step 1: Ensure I2S speaker is initialized ---
     initSpeakerI2S();
 
-    // --- Step 2: Get API Key ---
     String apiKey = preferences.getString("groq_key", "");
     if (apiKey.length() == 0) {
         Serial.println("TTS: No API key found in Preferences.");
@@ -350,16 +506,26 @@ void GroqClient::playTTS(const String& text) {
     }
     Serial.println("TTS: Starting Groq Orpheus TTS for: " + text.substring(0, 40) + "...");
 
-    // --- Step 3: Allocate PSRAM buffer ---
-    tts_audio_buffer = (uint8_t*)heap_caps_malloc(TTS_BUFFER_MAX, MALLOC_CAP_SPIRAM);
-    if (!tts_audio_buffer) {
-        Serial.println("TTS: FATAL — cannot allocate PSRAM buffer!");
+    if (!tts_stream_mutex) {
+        tts_stream_mutex = xSemaphoreCreateMutex();
+    }
+
+    tts_stream_buf = (uint8_t*)heap_caps_malloc(TTS_STREAM_BUF_SIZE, MALLOC_CAP_SPIRAM);
+    if (!tts_stream_buf) {
+        Serial.println("TTS: FATAL — cannot allocate PSRAM stream buffer!");
         return;
     }
-    tts_audio_len = 0;
+    
+    tts_stream_write_ptr = 0;
+    tts_stream_read_ptr = 0;
+    tts_stream_count = 0;
+    tts_bytes_received = 0;
+    tts_is_downloading = true;
+    is_tts_playing = true;
 
-    // --- Step 4: Build JSON payload ---
-    // Sanitize text: escape quotes and remove newlines
+    // Start background playback task!
+    xTaskCreatePinnedToCore(ttsPlaybackTask, "TTS_Play", 4096, NULL, 5, NULL, 1);
+
     String safeText = text;
     safeText.replace("\\", "\\\\");
     safeText.replace("\"", "\\\"");
@@ -371,92 +537,28 @@ void GroqClient::playTTS(const String& text) {
                      "\"voice\":\"hannah\","
                      "\"response_format\":\"wav\"}";
 
-    // --- Step 5: HTTP POST via esp_http_client (same as Whisper/Llama) ---
-    esp_http_client_config_t config = {
-        .url              = "https://api.groq.com/openai/v1/audio/speech",
-        .cert_pem         = NULL,
-        .timeout_ms       = 30000, // Generous timeout for TTS generation
-        .event_handler    = _tts_event_handler,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
+    current_api_phase = PHASE_TTS;
+    if (persistent_client == NULL) GroqClient::init();
 
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    esp_http_client_set_url(persistent_client, "https://api.groq.com/openai/v1/audio/speech");
+    esp_http_client_set_method(persistent_client, HTTP_METHOD_POST);
 
     String authHeader = String("Bearer ") + apiKey;
-    esp_http_client_set_header(client, "Authorization", authHeader.c_str());
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_post_field(client, payload.c_str(), payload.length());
+    esp_http_client_set_header(persistent_client, "Authorization", authHeader.c_str());
+    esp_http_client_set_header(persistent_client, "Content-Type", "application/json");
+    esp_http_client_set_post_field(persistent_client, payload.c_str(), payload.length());
 
-    esp_err_t err = esp_http_client_perform(client);
-    int statusCode = esp_http_client_get_status_code(client);
-    esp_http_client_cleanup(client);
+    esp_err_t err = esp_http_client_perform(persistent_client);
+    int statusCode = esp_http_client_get_status_code(persistent_client);
 
-    Serial.printf("TTS: HTTP %d | WAV bytes received: %u\n", statusCode, tts_audio_len);
+    tts_is_downloading = false; // Failsafe
 
-    // --- Step 6: Play raw PCM from WAV buffer ---
-    if (err == ESP_OK && statusCode == 200 && tts_audio_len > 44) {
-        // Parse WAV: find the 'data' chunk to get exact PCM start offset
-        size_t pcm_start = 44; // Standard RIFF WAV header is 44 bytes
-        // Search for 'data' marker in case of non-standard header
-        for (size_t i = 0; i < tts_audio_len - 8; i++) {
-            if (tts_audio_buffer[i]   == 'd' &&
-                tts_audio_buffer[i+1] == 'a' &&
-                tts_audio_buffer[i+2] == 't' &&
-                tts_audio_buffer[i+3] == 'a') {
-                pcm_start = i + 8; // skip 'd','a','t','a' + 4-byte chunk size
-                break;
-            }
-        }
-
-        Serial.printf("TTS: PCM data starts at byte %u. Playing...\n", pcm_start);
-
-        is_tts_playing = true;
-        uint8_t* pcm_ptr = tts_audio_buffer + pcm_start;
-        size_t   pcm_len = tts_audio_len - pcm_start;
-
-        // Stream in 2048-byte chunks to avoid I2S write latency spikes
-        const size_t CHUNK = 2048;
-        size_t offset = 0;
-        int16_t local_pcm[1024]; // 2048 bytes = 1024 int16 samples
-        
-        while (offset < pcm_len) {
-            size_t write_len = min(CHUNK, pcm_len - offset);
-            size_t num_samples = write_len / 2;
-            
-            // Read volume in real-time
-            uint8_t volPercent = preferences.getUInt("vol", 100);
-            float volScalar = (volPercent / 100.0f) * 4.0f;
-            
-            int16_t* src_pcm = (int16_t*)(pcm_ptr + offset);
-            for (size_t i = 0; i < num_samples; i++) {
-                int32_t val = (int32_t)(src_pcm[i] * volScalar);
-                if (val > 32767) val = 32767;
-                else if (val < -32768) val = -32768;
-                local_pcm[i] = (int16_t)val;
-            }
-            
-            size_t bytes_written = 0;
-            i2s_write(I2S_NUM_1, (uint8_t*)local_pcm, write_len, &bytes_written, portMAX_DELAY);
-            offset += write_len;
-        }
-
-        // Drain DMA buffers cleanly
-        i2s_zero_dma_buffer(I2S_NUM_1);
-        is_tts_playing = false;
-        Serial.println("TTS: Playback complete.");
-    } else {
-        Serial.printf("TTS: ERROR — esp_err=%s, HTTP=%d, bytes=%u\n",
-                      esp_err_to_name(err), statusCode, tts_audio_len);
-        // Print response body if it's small enough (likely an error JSON)
-        if (tts_audio_len > 0 && tts_audio_len < 512) {
-            Serial.write(tts_audio_buffer, tts_audio_len);
-            Serial.println();
-        }
+    // Block here until the playback task finishes playing the remainder of the buffer
+    while (is_tts_playing) {
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
 
-    // --- Step 7: Free PSRAM buffer ---
-    heap_caps_free(tts_audio_buffer);
-    tts_audio_buffer = nullptr;
-    tts_audio_len    = 0;
+    heap_caps_free(tts_stream_buf);
+    tts_stream_buf = nullptr;
+    Serial.println("TTS: Finished streaming entirely.");
 }

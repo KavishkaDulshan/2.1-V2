@@ -39,6 +39,30 @@ void ChatUI::addMessage(String text, bool isUser) {
     _needsRedraw = true;
 }
 
+void ChatUI::appendLastMessage(String text) {
+    if (_messages.empty()) {
+        addMessage(text, false);
+        return;
+    }
+    
+    // Only append to a robot message
+    if (!_messages.back().isUser) {
+        _messages.back().text += text;
+        
+        // Auto-scroll to bottom
+        int totalH = calculateTotalHeight();
+        if (totalH > 192) {
+            _scrollOffsetY = totalH - 192;
+        } else {
+            _scrollOffsetY = 0;
+        }
+        _velocity = 0;
+        _needsRedraw = true;
+    } else {
+        addMessage(text, false);
+    }
+}
+
 void ChatUI::update(bool isTouched, int touchY) {
     unsigned long now = millis();
     int totalH = calculateTotalHeight();

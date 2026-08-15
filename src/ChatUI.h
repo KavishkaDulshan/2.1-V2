@@ -15,6 +15,7 @@ public:
     ChatUI();
     void init(lgfx::LGFX_Device* display);
     void addMessage(String text, bool isUser);
+    void appendLastMessage(String text);
     
     // Call every frame in loop()
     void update(bool isTouched, int touchY); 
