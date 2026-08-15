@@ -214,7 +214,11 @@ esp_err_t _llm_stream_event_handler(esp_http_client_event_t *evt) {
                                 if (is_parsing_tag) {
                                     for (size_t c = 0; c < content.length(); c++) {
                                         if (tag_buffer.length() == 0 && content[c] != '[') {
+                                            if (isspace(content[c]) || content[c] == '\n' || content[c] == '\r') {
+                                                continue; // skip leading whitespace
+                                            }
                                             // Doesn't start with [, abort parsing and dump
+                                            Serial.printf("\n[DBG] Tag Parser Aborted! Found char: '%c' (0x%02X)\n", content[c], content[c]);
                                             is_parsing_tag = false;
                                             chatUI.appendLastMessage(content.substring(c));
                                             llm_complete_response += content.substring(c);
