@@ -387,7 +387,9 @@ void llmTask(void *pvParameters) {
                         eyes.isWaiting = false;
                         Serial.println("Robot answers: " + answer);
                         
-                        chatUI.addMessage(answer, false);
+                        // The text was already streamed to chatUI inside chatCompletion. 
+                        // Do not call addMessage again here.
+                        
                         GroqClient::playTTS(answer);
                     }
                 } else {
